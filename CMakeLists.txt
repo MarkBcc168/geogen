@@ -61,4 +61,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_line_circle.geogen)
   set_tests_properties(automatic_known_root_line_circle PROPERTIES
     PASS_REGULAR_EXPRESSION "POINT X.secant,omega,A")
+  add_test(NAME circumcenter_isosceles_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
+  set_tests_properties(circumcenter_isosceles_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,O1,O2,O3")
 endif()

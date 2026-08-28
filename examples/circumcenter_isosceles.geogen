@@ -1,0 +1,7 @@
+mode prove
+triangle A B C
+midpoint M B C
+circumcenter O1 A B M
+circumcenter O2 A C M
+circumcenter O3 A B C
+prove_concyclic A O1 O2 O3

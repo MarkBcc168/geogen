@@ -185,6 +185,12 @@ successful angular proof lists the construction/theorem facts used. See
   hypotenuse-midpoint theorem. Perpendicular-bisector incidences add equal
   distances, kites add their full reflection-angle relation, and the standard six
   side-midpoint/altitude-foot configuration invokes the nine-point-circle rule.
+- Every known equality `XA=XB` adds the undivided isosceles relation
+  `angle(XA)+angle(XB)=2*angle(AB)`. This retains integer coefficients and lets
+  circumcenter-radius facts participate in the full angle chase.
+- A constructed circumcenter also adds all cyclic forms of
+  `angle(ACB)+angle(OAB)=90 degrees`. This resolves the factor-of-two ambiguity
+  that equal-radius isosceles relations alone cannot remove modulo 180 degrees.
 - A numerical coincidence which follows from this fact base is labeled `EASY`
   and suppressed by default. Remaining statements are printed as `NONTRIVIAL`.
 
