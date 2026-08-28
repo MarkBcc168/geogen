@@ -1,0 +1,9 @@
+/build/
+/out/
+/geogen
+/geogen_san
+*.o
+*.obj
+*.exe
+*.profraw
+*.profdata

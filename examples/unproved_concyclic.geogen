@@ -1,0 +1,5 @@
+# D is numerically on the circumcircle of ABC, but no symbolic circle fact is given.
+# The result is therefore emitted as a conjecture rather than proving itself.
+mode generate
+triangle A 1 0 B 0 1 C -1 0
+point D 0 -1

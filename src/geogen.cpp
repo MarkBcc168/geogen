@@ -1,0 +1,414 @@
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <map>
+#include <numeric>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace geogen {
+
+constexpr long double EPS = 1e-9L;
+constexpr long double PI = 3.141592653589793238462643383279502884L;
+
+struct Point {
+  std::string name;
+  long double x{}, y{};
+  std::string origin;
+};
+
+struct Line {
+  std::string name;
+  long double a{}, b{}, c{}; // ax + by + c = 0, a^2+b^2=1
+  std::string origin;
+};
+
+struct Circle {
+  std::string name;
+  Point center;
+  long double r2{};
+  std::string origin;
+};
+
+long double sq(long double x) { return x * x; }
+long double dist2(const Point& a, const Point& b) {
+  return sq(a.x - b.x) + sq(a.y - b.y);
+}
+long double cross(const Point& a, const Point& b, const Point& c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+long double dot(long double ax, long double ay, long double bx, long double by) {
+  return ax * bx + ay * by;
+}
+long double scale(const Point& a, const Point& b, const Point& c) {
+  return 1.0L + std::sqrt(dist2(a, b)) + std::sqrt(dist2(a, c));
+}
+bool near(long double a, long double b, long double s = 1.0L) {
+  return std::fabs(a - b) <= EPS * (s + std::fabs(a) + std::fabs(b));
+}
+
+Line through(std::string name, const Point& p, const Point& q, std::string why) {
+  long double dx = q.x - p.x, dy = q.y - p.y;
+  long double z = std::hypotl(dx, dy);
+  if (z <= EPS) throw std::runtime_error("cannot define a line through coincident points");
+  long double a = -dy / z, b = dx / z, c = -(a * p.x + b * p.y);
+  if (a < -EPS || (std::fabs(a) <= EPS && b < 0)) { a = -a; b = -b; c = -c; }
+  return {std::move(name), a, b, c, std::move(why)};
+}
+
+Point intersect(const Line& l, const Line& m, std::string name, std::string why) {
+  long double d = l.a * m.b - m.a * l.b;
+  if (std::fabs(d) <= EPS) throw std::runtime_error("parallel lines have no finite intersection");
+  return {std::move(name), (l.b * m.c - m.b * l.c) / d,
+          (l.c * m.a - m.c * l.a) / d, std::move(why)};
+}
+
+Point circumcenter(const Point& a, const Point& b, const Point& c, std::string name,
+                   std::string why) {
+  long double d = 2 * cross(a, b, c);
+  if (std::fabs(d) <= EPS * scale(a, b, c))
+    throw std::runtime_error("circumcenter needs three non-collinear points");
+  long double aa = a.x * a.x + a.y * a.y;
+  long double bb = b.x * b.x + b.y * b.y;
+  long double cc = c.x * c.x + c.y * c.y;
+  return {std::move(name),
+          (aa * (b.y-c.y) + bb * (c.y-a.y) + cc * (a.y-b.y)) / d,
+          (aa * (c.x-b.x) + bb * (a.x-c.x) + cc * (b.x-a.x)) / d,
+          std::move(why)};
+}
+
+// Sparse modular elimination represents directed line-angle equations modulo pi.
+// Two large primes are checked; a false symbolic proof would require a collision in both.
+class AngleSystem {
+ public:
+  using Coeff = std::map<int, std::int64_t>;
+  struct Equation { Coeff c; std::int64_t k{}; std::set<int> reasons; };
+
+ private:
+  static constexpr std::array<std::int64_t, 2> MOD{1000000007LL, 1000000009LL};
+  std::array<std::map<int, Equation>, 2> basis_;
+  std::vector<std::string> reason_text_;
+
+  static std::int64_t norm(std::int64_t x, std::int64_t p) {
+    x %= p; if (x < 0) x += p; return x;
+  }
+  static std::int64_t mul(std::int64_t a, std::int64_t b, std::int64_t p) {
+    // Both residues are below 1.01e9, so their product fits in int64_t.
+    return (a * b) % p;
+  }
+  static std::int64_t power(std::int64_t a, std::int64_t e, std::int64_t p) {
+    std::int64_t r = 1;
+    while (e) { if (e & 1) r = mul(r, a, p); a = mul(a, a, p); e >>= 1; }
+    return r;
+  }
+  static void add_scaled(Equation& x, const Equation& y, std::int64_t f,
+                         std::int64_t p) {
+    for (auto [v, a] : y.c) {
+      auto nv = norm(x.c[v] + mul(f, a, p), p);
+      if (nv == 0) x.c.erase(v); else x.c[v] = nv;
+    }
+    x.k = norm(x.k + mul(f, y.k, p), p);
+    x.reasons.insert(y.reasons.begin(), y.reasons.end());
+  }
+  static Equation converted(const Coeff& c, std::int64_t numerator,
+                            std::int64_t denominator, std::int64_t p) {
+    Equation e;
+    for (auto [v, a] : c) if (norm(a, p)) e.c[v] = norm(a, p);
+    e.k = mul(norm(numerator, p), power(norm(denominator, p), p - 2, p), p);
+    return e;
+  }
+  static void reduce(Equation& e, const std::map<int, Equation>& b, std::int64_t p) {
+    while (!e.c.empty()) {
+      int pivot = e.c.begin()->first;
+      auto it = b.find(pivot);
+      if (it == b.end()) break;
+      std::int64_t f = norm(-e.c.begin()->second, p);
+      add_scaled(e, it->second, f, p);
+    }
+  }
+
+ public:
+  int add_reason(std::string s) {
+    reason_text_.push_back(std::move(s)); return static_cast<int>(reason_text_.size()) - 1;
+  }
+
+  bool add(const Coeff& c, std::int64_t num, std::int64_t den, const std::string& why) {
+    int rid = add_reason(why);
+    bool changed = false;
+    for (std::size_t mi = 0; mi < MOD.size(); ++mi) {
+      auto p = MOD[mi]; Equation e = converted(c, num, den, p); e.reasons.insert(rid);
+      reduce(e, basis_[mi], p);
+      if (e.c.empty()) continue;
+      int pivot = e.c.begin()->first;
+      auto inv = power(e.c.begin()->second, p - 2, p);
+      for (auto& [v, a] : e.c) a = mul(a, inv, p);
+      e.k = mul(e.k, inv, p);
+      basis_[mi][pivot] = std::move(e); changed = true;
+    }
+    return changed;
+  }
+
+  bool proves(const Coeff& c, std::int64_t num, std::int64_t den,
+              std::set<int>* reasons = nullptr) const {
+    std::set<int> first;
+    for (std::size_t mi = 0; mi < MOD.size(); ++mi) {
+      Equation e = converted(c, num, den, MOD[mi]);
+      reduce(e, basis_[mi], MOD[mi]);
+      if (!e.c.empty() || e.k != 0) return false;
+      if (mi == 0) first = std::move(e.reasons);
+    }
+    if (reasons) *reasons = std::move(first);
+    return true;
+  }
+
+  std::vector<std::string> explain(const std::set<int>& ids) const {
+    std::vector<std::string> out;
+    for (int id : ids) if (id >= 0 && static_cast<std::size_t>(id) < reason_text_.size())
+      out.push_back(reason_text_[static_cast<std::size_t>(id)]);
+    return out;
+  }
+};
+
+struct Goal { std::string kind; std::vector<std::string> args; };
+struct Candidate { std::string kind; std::vector<int> points; std::string source; };
+
+class Engine {
+  std::vector<Point> points_;
+  std::vector<Line> lines_;
+  std::vector<Circle> circles_;
+  std::vector<std::vector<int>> line_points_;
+  std::vector<std::vector<int>> circle_points_;
+  std::unordered_map<std::string, int> point_id_, line_id_, circle_id_;
+  std::map<std::pair<int,int>, int> segment_line_;
+  AngleSystem angles_;
+  std::set<std::pair<std::pair<int,int>, std::pair<int,int>>> equal_lengths_;
+  std::vector<std::array<int,4>> cyclic_facts_;
+  std::vector<Goal> goals_;
+  std::vector<Candidate> circle_cache_;
+  bool prove_mode_ = false, show_easy_ = false;
+  std::size_t circle_budget_ = 25000000;
+
+  int pid(const std::string& s) const {
+    auto it = point_id_.find(s); if (it == point_id_.end()) throw std::runtime_error("unknown point: " + s);
+    return it->second;
+  }
+  int lid(const std::string& s) const {
+    auto it = line_id_.find(s); if (it == line_id_.end()) throw std::runtime_error("unknown line: " + s);
+    return it->second;
+  }
+  int cid(const std::string& s) const {
+    auto it = circle_id_.find(s); if (it == circle_id_.end()) throw std::runtime_error("unknown circle: " + s);
+    return it->second;
+  }
+  void add_point(Point p) {
+    if (point_id_.count(p.name)) throw std::runtime_error("duplicate point: " + p.name);
+    for (const auto& q : points_) if (dist2(p, q) <= EPS * EPS)
+      std::cerr << "warning: " << p.name << " numerically coincides with " << q.name << '\n';
+    point_id_[p.name] = static_cast<int>(points_.size()); points_.push_back(std::move(p));
+  }
+  int add_line(Line l) {
+    if (line_id_.count(l.name)) throw std::runtime_error("duplicate line: " + l.name);
+    int id = static_cast<int>(lines_.size()); line_id_[l.name] = id; lines_.push_back(std::move(l));
+    line_points_.emplace_back(); return id;
+  }
+  void add_circle(Circle c) {
+    if (circle_id_.count(c.name)) throw std::runtime_error("duplicate circle: " + c.name);
+    circle_id_[c.name] = static_cast<int>(circles_.size()); circles_.push_back(std::move(c));
+    circle_points_.emplace_back();
+  }
+  int segment(int a, int b) {
+    if (a == b) throw std::runtime_error("zero segment has no angle");
+    if (a > b) std::swap(a, b);
+    auto key = std::make_pair(a, b); auto it = segment_line_.find(key);
+    if (it != segment_line_.end()) return it->second;
+    std::string n = "@" + points_[a].name + points_[b].name;
+    int id = add_line(through(n, points_[a], points_[b], "segment"));
+    segment_line_[key] = id; return id;
+  }
+  static AngleSystem::Coeff equation(std::initializer_list<std::pair<int,int>> xs) {
+    AngleSystem::Coeff c; for (auto [v,a] : xs) { c[v] += a; if (!c[v]) c.erase(v); } return c;
+  }
+  void parallel_fact(int x, int y, const std::string& why) {
+    angles_.add(equation({{x,1},{y,-1}}), 0, 1, why);
+  }
+  void perpendicular_fact(int x, int y, const std::string& why) {
+    angles_.add(equation({{x,1},{y,-1}}), 1, 2, why);
+  }
+  void incidence(int p, int l, const std::string& why) {
+    for (int q : line_points_[static_cast<std::size_t>(l)])
+      if (p != q) parallel_fact(segment(p, q), l, why);
+    auto& on = line_points_[static_cast<std::size_t>(l)];
+    if (std::find(on.begin(), on.end(), p) == on.end()) on.push_back(p);
+  }
+  void circle_incidence(int p, int c) {
+    auto& on = circle_points_[static_cast<std::size_t>(c)];
+    if (std::find(on.begin(), on.end(), p) == on.end()) on.push_back(p);
+  }
+  static auto lenkey(int a, int b) { if (a>b) std::swap(a,b); return std::make_pair(a,b); }
+  void equal_length(int a, int b, int c, int d, const std::string&) {
+    auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y); equal_lengths_.insert({x,y});
+  }
+  bool length_equal(int a,int b,int c,int d) const {
+    auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y);
+    return x==y || equal_lengths_.count({x,y});
+  }
+  void add_cyclic(int a, int b, int c, int d, const std::string& why) {
+    std::array<int,4> q{a,b,c,d}; auto sorted=q; std::sort(sorted.begin(),sorted.end());
+    for (auto old:cyclic_facts_) { std::sort(old.begin(),old.end()); if(old==sorted) return; }
+    cyclic_facts_.push_back(q);
+    int ab=segment(a,b), cd=segment(c,d), ad=segment(a,d), bc=segment(b,c);
+    int ac=segment(a,c), bd=segment(b,d);
+    angles_.add(equation({{ab,1},{cd,1},{ad,-1},{bc,-1}}),0,1,why+" [cyclic pair-sum 1]");
+    angles_.add(equation({{ab,1},{cd,1},{ac,-1},{bd,-1}}),0,1,why+" [cyclic pair-sum 2]");
+  }
+  bool proves_collinear(const std::vector<int>& p, std::set<int>* why=nullptr) {
+    if (p.size()<3) return false;
+    int base=segment(p[0],p[1]);
+    std::set<int> all;
+    for(std::size_t i=2;i<p.size();++i){ std::set<int> w;
+      if(!angles_.proves(equation({{base,1},{segment(p[0],p[i]),-1}}),0,1,&w)) return false;
+      all.insert(w.begin(),w.end()); }
+    if(why)*why=std::move(all);
+    return true;
+  }
+  bool proves_cyclic(const std::vector<int>& p, std::set<int>* why=nullptr) {
+    if(p.size()<4)return false;
+    std::set<int> all;
+    for(std::size_t i=3;i<p.size();++i){
+      int a=p[0],b=p[1],c=p[2],d=p[i]; std::set<int>w;
+      auto e=equation({{segment(a,b),1},{segment(c,d),1},{segment(a,d),-1},{segment(b,c),-1}});
+      if(!angles_.proves(e,0,1,&w)) return false;
+      all.insert(w.begin(),w.end());
+    }
+    if(why)*why=std::move(all);
+    return true;
+  }
+  std::vector<int> names_to_points(const std::vector<std::string>& a) const {
+    std::vector<int> v; for(auto&s:a)v.push_back(pid(s)); return v;
+  }
+
+  void initial_triangle(const std::vector<std::string>& t, bool cyclic_quad) {
+    std::size_t n=cyclic_quad?4:3, need=1+n*3;
+    if(t.size()!=need) throw std::runtime_error(t[0]+" expects names followed by x y for each point");
+    for(std::size_t i=0;i<n;++i) add_point({t[1+i*3],std::stold(t[2+i*3]),std::stold(t[3+i*3]),"initial"});
+    if(n==4 && cyclic_quad){ auto a=pid(t[1]),b=pid(t[4]),c=pid(t[7]),d=pid(t[10]);
+      Point o=circumcenter(points_[a],points_[b],points_[c],"@check","check");
+      if(!near(dist2(o,points_[a]),dist2(o,points_[d]),10)) throw std::runtime_error("cyclic_quad coordinates are not cyclic");
+      add_cyclic(a,b,c,d,"initial cyclic quadrilateral"); }
+  }
+
+  void execute(const std::vector<std::string>& t, int line_no) {
+    auto need=[&](std::size_t n){if(t.size()!=n)throw std::runtime_error(t[0]+" expects "+std::to_string(n-1)+" arguments");};
+    const auto& op=t[0];
+    if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
+    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="triangle") initial_triangle(t,false);
+    else if(op=="quadrilateral") { if(t.size()!=13)throw std::runtime_error("quadrilateral expects four named coordinates"); for(std::size_t i=0;i<4;++i)add_point({t[1+i*3],std::stold(t[2+i*3]),std::stold(t[3+i*3]),"initial"}); }
+    else if(op=="cyclic_quad") initial_triangle(t,true);
+    else if(op=="point"){need(4);add_point({t[1],std::stold(t[2]),std::stold(t[3]),"declared"});}
+    else if(op=="line"){need(4);int a=pid(t[2]),b=pid(t[3]);int id=add_line(through(t[1],points_[a],points_[b],op));parallel_fact(id,segment(a,b),"definition line("+t[2]+","+t[3]+")");incidence(a,id,"line incidence");incidence(b,id,"line incidence");}
+    else if(op=="midpoint"){need(4);int a=pid(t[2]),b=pid(t[3]);add_point({t[1],(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,op});int m=pid(t[1]);parallel_fact(segment(a,m),segment(a,b),"midpoint collinearity "+t[1]);equal_length(a,m,m,b,"midpoint lengths");}
+    else if(op=="perp_bisector"){need(4);int a=pid(t[2]),b=pid(t[3]);Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};Line base=through("",points_[a],points_[b],"");Line l{t[1],base.b,-base.a,-(base.b*m.x-base.a*m.y),op};int id=add_line(l);perpendicular_fact(id,segment(a,b),"perpendicular bisector "+t[1]);}
+    else if(op=="parallel"||op=="perpendicular"){need(4);int p=pid(t[2]),base=lid(t[3]);const Line& q=lines_[base];Line l;if(op=="parallel")l={t[1],q.a,q.b,-q.a*points_[p].x-q.b*points_[p].y,op};else l={t[1],q.b,-q.a,-q.b*points_[p].x+q.a*points_[p].y,op};int id=add_line(l);incidence(p,id,op+" through point");if(op=="parallel")parallel_fact(id,base,"parallel construction "+t[1]);else perpendicular_fact(id,base,"perpendicular construction "+t[1]);}
+    else if(op=="angle_bisector"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double ux=points_[a].x-points_[b].x,uy=points_[a].y-points_[b].y,vx=points_[c].x-points_[b].x,vy=points_[c].y-points_[b].y;long double un=std::hypotl(ux,uy),vn=std::hypotl(vx,vy);Point q{"",points_[b].x+ux/un+vx/vn,points_[b].y+uy/un+vy/vn,""};int id=add_line(through(t[1],points_[b],q,op));incidence(b,id,"angle bisector through vertex");angles_.add(equation({{id,2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"angle bisector "+t[1]);}
+    else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op});int x=pid(t[1]);perpendicular_fact(segment(p,x),l,"line reflection "+t[1]);}
+    else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op});int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);equal_length(p,o,o,x,"point reflection lengths");}
+    else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op});int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);}
+    else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);add_point(intersect(lines_[a],lines_[b],t[1],op));int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
+    else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op));int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");}
+    else if(op=="orthocenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Line bc=through("",points_[b],points_[c],""),ac=through("",points_[a],points_[c],"");Line ha{"",bc.b,-bc.a,-bc.b*points_[a].x+bc.a*points_[a].y,""},hb{"",ac.b,-ac.a,-ac.b*points_[b].x+ac.a*points_[b].y,""};add_point(intersect(ha,hb,t[1],op));int h=pid(t[1]);perpendicular_fact(segment(a,h),segment(b,c),"orthocenter altitude 1 "+t[1]);perpendicular_fact(segment(b,h),segment(a,c),"orthocenter altitude 2 "+t[1]);perpendicular_fact(segment(c,h),segment(a,b),"orthocenter closure "+t[1]);}
+    else if(op=="incenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double la=std::sqrt(dist2(points_[b],points_[c])),lb=std::sqrt(dist2(points_[a],points_[c])),lc=std::sqrt(dist2(points_[a],points_[b])),s=la+lb+lc;add_point({t[1],(la*points_[a].x+lb*points_[b].x+lc*points_[c].x)/s,(la*points_[a].y+lb*points_[b].y+lc*points_[c].y)/s,op});int i=pid(t[1]);angles_.add(equation({{segment(a,i),2},{segment(a,b),-1},{segment(a,c),-1}}),0,1,"incenter bisector at "+t[2]);angles_.add(equation({{segment(b,i),2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"incenter bisector at "+t[3]);angles_.add(equation({{segment(c,i),2},{segment(a,c),-1},{segment(b,c),-1}}),0,1,"incenter closure at "+t[4]);}
+    else if(op=="circle"){need(4);int o=pid(t[2]),p=pid(t[3]);add_circle({t[1],points_[o],dist2(points_[o],points_[p]),op});circle_incidence(p,cid(t[1]));}
+    else if(op=="circumcircle"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Point o=circumcenter(points_[a],points_[b],points_[c],"@"+t[1],op);add_circle({t[1],o,dist2(o,points_[a]),op});int z=cid(t[1]);circle_incidence(a,z);circle_incidence(b,z);circle_incidence(c,z);}
+    else if(op=="incircle"){need(6);int i=pid(t[2]),a=pid(t[3]),b=pid(t[4]),c=pid(t[5]);Line ab=through("",points_[a],points_[b],"");long double r=ab.a*points_[i].x+ab.b*points_[i].y+ab.c;add_circle({t[1],points_[i],r*r,op});(void)c;}
+    else if(op=="intersection_lc_known"){need(5);int l=lid(t[2]),c=cid(t[3]),k=pid(t[4]);auto&ln=lines_[l];auto&cc=circles_[c];if(std::fabs(ln.a*points_[k].x+ln.b*points_[k].y+ln.c)>EPS*10||!near(dist2(cc.center,points_[k]),cc.r2,10))throw std::runtime_error(t[4]+" is not a known intersection of "+t[2]+" and "+t[3]);long double dx=ln.b,dy=-ln.a;long double vx=points_[k].x-cc.center.x,vy=points_[k].y-cc.center.y;long double tt=-2*dot(vx,vy,dx,dy);if(std::fabs(tt)<=EPS)throw std::runtime_error("known line-circle intersection is tangent; no distinct second point");add_point({t[1],points_[k].x+tt*dx,points_[k].y+tt*dy,op});int x=pid(t[1]);incidence(k,l,"known line-circle incidence");incidence(x,l,"line-circle second incidence");circle_incidence(k,c);circle_incidence(x,c);parallel_fact(segment(k,x),l,"line-circle known-root incidence");}
+    else if(op=="intersection_cc_known"){need(5);int c1=cid(t[2]),c2=cid(t[3]),k=pid(t[4]);auto&a=circles_[c1];auto&b=circles_[c2];if(!near(dist2(a.center,points_[k]),a.r2,10)||!near(dist2(b.center,points_[k]),b.r2,10))throw std::runtime_error(t[4]+" is not on both circles");Line axis=through("",a.center,b.center,"");long double d=axis.a*points_[k].x+axis.b*points_[k].y+axis.c;if(std::fabs(d)<=EPS)throw std::runtime_error("known circle-circle intersection is tangent; no distinct second point");add_point({t[1],points_[k].x-2*axis.a*d,points_[k].y-2*axis.b*d,op});int x=pid(t[1]);circle_incidence(k,c1);circle_incidence(x,c1);circle_incidence(k,c2);circle_incidence(x,c2);}
+    else if(op.rfind("prove_",0)==0){goals_.push_back({op.substr(6),std::vector<std::string>(t.begin()+1,t.end())});}
+    else throw std::runtime_error("line "+std::to_string(line_no)+": unknown command "+op);
+  }
+
+  void geometry_closure() {
+    // Only declared construction incidences enter the proof layer. Numerical
+    // discoveries remain conjectures and therefore cannot prove themselves.
+    for (std::size_t c=0;c<circle_points_.size();++c) {
+      const auto& on=circle_points_[c];
+      if(on.size()>=4) for(std::size_t i=3;i<on.size();++i)
+        add_cyclic(on[0],on[1],on[2],on[i],"points constructed on circle "+circles_[c].name);
+    }
+    circle_cache_ = detect_circles(true);
+    bool changed=true;int rounds=0;
+    while(changed&&rounds++<8){changed=false;
+      for(const auto&x:circle_cache_)if(x.points.size()>=4){std::set<int>w;if(proves_cyclic(x.points,&w)){auto before=cyclic_facts_.size();add_cyclic(x.points[0],x.points[1],x.points[2],x.points[3],"converse cyclic angle theorem");changed|=cyclic_facts_.size()!=before;}}
+      // Kite: equal adjacent pairs plus symmetry angle condition gives diagonal perpendicularity.
+      std::map<std::pair<int,int>,std::set<int>> wings;
+      for(const auto& fact:equal_lengths_){auto x=fact.first,y=fact.second;int vertex=-1,b=-1,c=-1;
+        if(x.first==y.first){vertex=x.first;b=x.second;c=y.second;}
+        else if(x.first==y.second){vertex=x.first;b=x.second;c=y.first;}
+        else if(x.second==y.first){vertex=x.second;b=x.first;c=y.second;}
+        else if(x.second==y.second){vertex=x.second;b=x.first;c=y.first;}
+        if(vertex>=0&&b!=c){if(b>c)std::swap(b,c);wings[{b,c}].insert(vertex);}}
+      for(const auto& [base,vertices]:wings)for(auto ai=vertices.begin();ai!=vertices.end();++ai)for(auto di=std::next(ai);di!=vertices.end();++di){
+        int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2)){perpendicular_fact(ad,bc,"kite theorem "+points_[*ai].name+points_[base.first].name+points_[*di].name+points_[base.second].name);changed=true;}}
+    }
+  }
+
+  static long long quant(long double x, long double step=1e-8L) { return std::llround(x/step); }
+  std::vector<Candidate> detect_lines() const {
+    std::map<std::vector<int>,Candidate> uniq;int n=(int)points_.size();
+    for(int a=0;a<n;++a){std::map<long long,std::vector<int>> groups;
+      for(int b=0;b<n;++b)if(a!=b){long double ang=std::atan2(points_[b].y-points_[a].y,points_[b].x-points_[a].x);while(ang<0)ang+=PI;while(ang>=PI)ang-=PI;groups[quant(ang)].push_back(b);}
+      for(auto&[_,g]:groups)if(g.size()>=2){g.push_back(a);std::sort(g.begin(),g.end());g.erase(std::unique(g.begin(),g.end()),g.end());bool ok=true;for(int x:g)if(std::fabs(cross(points_[g[0]],points_[g[1]],points_[x]))>EPS*scale(points_[g[0]],points_[g[1]],points_[x])*10)ok=false;if(ok)uniq[g]={"collinear",g,"direction hash"};}
+    }std::vector<Candidate> out;for(auto&[_,v]:uniq)out.push_back(v);return out;
+  }
+  std::vector<Candidate> detect_circles(bool respect_budget=true) const {
+    std::map<std::vector<int>,Candidate> uniq;int n=(int)points_.size();
+    // Every declared circle is cheap to scan.
+    for(auto&c:circles_){std::vector<int> on;for(int i=0;i<n;++i)if(near(dist2(c.center,points_[i]),c.r2,10))on.push_back(i);if(on.size()>=4)uniq[on]={"concyclic",on,"declared circle "+c.name};}
+    std::uint64_t triples=(std::uint64_t)n*(n-1)*(n-2)/6;
+    if(respect_budget&&triples>circle_budget_){std::cerr<<"warning: general circle scan skipped ("<<triples<<" triples > circle_budget)\n";std::vector<Candidate>out;for(auto&[_,v]:uniq)out.push_back(v);return out;}
+    // O(n^3) time and O(n^2) peak memory. Fixing one anchor retains enough
+    // information to discover every circle while allowing each hash table to be freed.
+    for(int a=0;a<n;++a){
+      std::map<std::tuple<long long,long long,long long>,std::set<int>> bins;
+      for(int b=0;b<n;++b)if(b!=a)for(int c=b+1;c<n;++c)if(c!=a){
+        if(std::fabs(cross(points_[a],points_[b],points_[c]))<=EPS*scale(points_[a],points_[b],points_[c]))continue;
+        Point o=circumcenter(points_[a],points_[b],points_[c],"","scan");long double r2=dist2(o,points_[a]);
+        auto key=std::make_tuple(quant(o.x),quant(o.y),quant(r2));auto&s=bins[key];s.insert(a);s.insert(b);s.insert(c);
+      }
+      for(auto&[_,s]:bins)if(s.size()>=4){std::vector<int>v(s.begin(),s.end());Point o=circumcenter(points_[v[0]],points_[v[1]],points_[v[2]],"","verify");bool ok=true;for(int x:v)if(!near(dist2(o,points_[x]),dist2(o,points_[v[0]]),10))ok=false;if(ok)uniq[v]={"concyclic",v,"circle hash"};}
+    }
+    std::vector<Candidate>out;for(auto&[_,v]:uniq)out.push_back(v);return out;
+  }
+
+  std::string point_list(const std::vector<int>& p) const {std::string s;for(std::size_t i=0;i<p.size();++i){if(i)s+=",";s+=points_[p[i]].name;}return s;}
+  void print_proof(const std::string& label,const std::set<int>& w)const{std::cout<<"PROVED "<<label<<"\n";int step=1;for(auto&s:angles_.explain(w))std::cout<<"  "<<step++<<". "<<s<<"\n";if(step==1)std::cout<<"  1. direct known fact\n";}
+  void run_goals(){for(auto&g:goals_){try{std::set<int>w;bool ok=false;std::string label=g.kind+"(";for(std::size_t i=0;i<g.args.size();++i){if(i)label+=",";label+=g.args[i];}label+=")";
+      if(g.kind=="collinear")ok=proves_collinear(names_to_points(g.args),&w);
+      else if(g.kind=="concyclic")ok=proves_cyclic(names_to_points(g.args),&w);
+      else if((g.kind=="parallel"||g.kind=="perpendicular")&&g.args.size()==4){int a=pid(g.args[0]),b=pid(g.args[1]),c=pid(g.args[2]),d=pid(g.args[3]);ok=angles_.proves(equation({{segment(a,b),1},{segment(c,d),-1}}),g.kind=="perpendicular"?1:0,g.kind=="perpendicular"?2:1,&w);}
+      else if(g.kind=="equal_distance"&&g.args.size()==4)ok=length_equal(pid(g.args[0]),pid(g.args[1]),pid(g.args[2]),pid(g.args[3]));
+      else throw std::runtime_error("bad or unsupported proof goal");
+      if(ok) print_proof(label,w); else std::cout<<"UNPROVED "<<label<<"\n";
+    }catch(const std::exception&e){std::cout<<"ERROR goal: "<<e.what()<<"\n";}}}
+
+ public:
+  void parse(std::istream& in) {std::string line;int no=0;while(std::getline(in,line)){++no;auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);std::istringstream ss(line);std::vector<std::string>t;std::string x;while(ss>>x)t.push_back(x);if(t.empty())continue;try{execute(t,no);}catch(const std::exception&e){throw std::runtime_error("line "+std::to_string(no)+": "+e.what());}}}
+  void report(){geometry_closure();std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";if(prove_mode_||!goals_.empty()){run_goals();return;}auto ls=detect_lines();std::size_t easy=0,hard=0;for(auto&x:ls){std::set<int>w;bool e=proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}for(auto&x:circle_cache_){std::set<int>w;bool e=proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";}
+};
+
+} // namespace geogen
+
+int main(int argc,char**argv){try{std::ios::sync_with_stdio(false);std::cin.tie(nullptr);geogen::Engine e;if(argc>2){std::cerr<<"usage: geogen [input.geogen]\n";return 2;}if(argc==2){std::ifstream f(argv[1]);if(!f)throw std::runtime_error("cannot open input file");e.parse(f);}else e.parse(std::cin);e.report();return 0;}catch(const std::exception&e){std::cerr<<"geogen: "<<e.what()<<'\n';return 1;}}

@@ -1,0 +1,7 @@
+mode prove
+triangle A 1 0 B 0 1 C -1 0
+point P 0 2
+circumcircle omega A B C
+line secant A P
+intersection_lc_known D secant omega A
+prove_concyclic A B C D
