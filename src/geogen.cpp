@@ -106,10 +106,13 @@ class AngleSystem {
   mutable std::vector<Equation> basis_;
   mutable bool dirty_=true;
   mutable bool modular_mode_=false;
-  struct ModularEquation {std::map<int,std::int64_t> c;std::set<int> reasons;};
-  static constexpr std::array<std::int64_t,18> MODULI{
-    2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,1000000007LL,1000000009LL};
+  struct ModularEquation {
+    std::map<int,std::int64_t> c;
+    std::map<int,std::int64_t> combination; // coefficients of original fact rows
+  };
+  static constexpr std::array<std::int64_t,2> MODULI{1000000007LL,1000000009LL};
   mutable std::vector<std::map<int,ModularEquation>> modular_basis_;
+  std::int64_t coefficient_limit_=10000;
   std::vector<std::string> reason_text_;
 
   static Integer coefficient(const Equation& e,int column){
@@ -139,27 +142,29 @@ class AngleSystem {
   static std::int64_t mod_mul(std::int64_t a,std::int64_t b,std::int64_t p){return (a*b)%p;}
   static std::int64_t mod_power(std::int64_t a,std::int64_t e,std::int64_t p){std::int64_t r=1;while(e){if(e&1)r=mod_mul(r,a,p);a=mod_mul(a,a,p);e>>=1;}return r;}
   static ModularEquation modularized(const Equation&e,std::int64_t p){
-    ModularEquation out;out.reasons=e.reasons;for(const auto&[v,a]:e.c){
+    ModularEquation out;for(const auto&[v,a]:e.c){
       std::int64_t value=mod_norm(static_cast<std::int64_t>(a%p),p);if(value)out.c[v]=value;}
     return out;
   }
   static void modular_add_scaled(ModularEquation&x,const ModularEquation&y,std::int64_t f,std::int64_t p){
     if(!f)return;
     for(auto[v,a]:y.c){auto value=mod_norm(x.c[v]+mod_mul(f,a,p),p);if(value)x.c[v]=value;else x.c.erase(v);}
-    x.reasons.insert(y.reasons.begin(),y.reasons.end());
+    for(auto[v,a]:y.combination){auto value=mod_norm(x.combination[v]+mod_mul(f,a,p),p);if(value)x.combination[v]=value;else x.combination.erase(v);}
   }
   static void modular_reduce(ModularEquation&e,const std::map<int,ModularEquation>&basis,std::int64_t p){
     while(!e.c.empty()){int pivot=e.c.begin()->first;auto it=basis.find(pivot);if(it==basis.end())break;modular_add_scaled(e,it->second,mod_norm(-e.c.begin()->second,p),p);}
   }
-  void modular_insert(const Equation&e,std::size_t mi)const{
-    auto p=MODULI[mi];auto row=modularized(e,p);modular_reduce(row,modular_basis_[mi],p);if(row.c.empty())return;
+  void modular_insert(const Equation&e,std::size_t mi,int fact_id)const{
+    auto p=MODULI[mi];auto row=modularized(e,p);row.combination[fact_id]=1;
+    modular_reduce(row,modular_basis_[mi],p);if(row.c.empty())return;
     int pivot=row.c.begin()->first;auto inv=mod_power(row.c.begin()->second,p-2,p);
     for(auto&[_,a]:row.c)a=mod_mul(a,inv,p);
+    for(auto&[_,a]:row.combination)a=mod_mul(a,inv,p);
     modular_basis_[mi][pivot]=std::move(row);
   }
   void rebuild_modular()const{
     modular_basis_.assign(MODULI.size(),{});Equation period;period.c[HALF_TURN_COLUMN]=2;
-    for(std::size_t mi=0;mi<MODULI.size();++mi){modular_insert(period,mi);for(const auto&row:rows_)modular_insert(row,mi);}
+    for(std::size_t mi=0;mi<MODULI.size();++mi){modular_insert(period,mi,-1);for(std::size_t i=0;i<rows_.size();++i)modular_insert(rows_[i],mi,static_cast<int>(i));}
     basis_.clear();modular_mode_=true;dirty_=false;
   }
   static Equation converted(const Coeff& c,std::int64_t numerator,
@@ -205,6 +210,10 @@ class AngleSystem {
   }
 
  public:
+  void set_coefficient_limit(std::int64_t limit){
+    if(limit<1)throw std::runtime_error("angle coefficient limit must be positive");
+    coefficient_limit_=limit;
+  }
   int add_reason(std::string s) {
     reason_text_.push_back(std::move(s)); return static_cast<int>(reason_text_.size()) - 1;
   }
@@ -212,7 +221,7 @@ class AngleSystem {
   bool add(const Coeff& c, std::int64_t num, std::int64_t den, const std::string& why) {
     Equation e=converted(c,num,den);e.reasons.insert(add_reason(why));
     rows_.push_back(e);
-    if(modular_mode_&&!dirty_)for(std::size_t mi=0;mi<MODULI.size();++mi)modular_insert(e,mi);
+    if(modular_mode_&&!dirty_)for(std::size_t mi=0;mi<MODULI.size();++mi)modular_insert(e,mi,static_cast<int>(rows_.size()-1));
     else dirty_=true;
     return true;
   }
@@ -220,9 +229,14 @@ class AngleSystem {
   bool proves(const Coeff& c, std::int64_t num, std::int64_t den,
               std::set<int>* reasons = nullptr) const {
     rebuild();Equation e=converted(c,num,den);
-    if(modular_mode_){std::set<int> first;for(std::size_t mi=0;mi<MODULI.size();++mi){
-      auto row=modularized(e,MODULI[mi]);modular_reduce(row,modular_basis_[mi],MODULI[mi]);if(!row.c.empty())return false;if(mi==0)first=std::move(row.reasons);}
-      if(reasons)*reasons=std::move(first);
+    if(modular_mode_){std::map<int,std::int64_t> expected;for(std::size_t mi=0;mi<MODULI.size();++mi){
+      auto p=MODULI[mi];auto row=modularized(e,p);modular_reduce(row,modular_basis_[mi],p);if(!row.c.empty())return false;
+      std::map<int,std::int64_t> signed_coefficients;
+      for(auto[id,value]:row.combination){if(value>p/2)value-=p;if(std::llabs(value)>coefficient_limit_)return false;if(value)signed_coefficients[id]=value;}
+      if(mi==0)expected=std::move(signed_coefficients);else if(signed_coefficients!=expected)return false;
+    }
+      if(reasons)for(const auto&[fact,coefficient]:expected)if(fact>=0&&coefficient)
+        reasons->insert(rows_[static_cast<std::size_t>(fact)].reasons.begin(),rows_[static_cast<std::size_t>(fact)].reasons.end());
       return true;
     }
     for(const auto& row:basis_){
@@ -452,7 +466,7 @@ class Engine {
     auto need=[&](std::size_t n){if(t.size()!=n)throw std::runtime_error(t[0]+" expects "+std::to_string(n-1)+" arguments");};
     const auto& op=t[0];
     if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
-    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit")angles_.set_coefficient_limit(std::stoll(t[2]));else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
     else if(op=="triangle") initial_triangle(t);
     else if(op=="quadrilateral") initial_quadrilateral(t,false);
     else if(op=="cyclic_quad") initial_quadrilateral(t,true);

@@ -38,6 +38,7 @@ option trials 5                # independent random realizations in generate mod
 option seed 20260828            # reproducible pseudorandom seed
 option max_points 30            # automatically expand to at most 30 points
 option line_circle_intersections 1 # generate quadratic-free second intersections
+option angle_coefficient_limit 10000 # maximum accepted proof coefficient
 
 triangle A B C
 quadrilateral A B C D
@@ -169,10 +170,13 @@ successful angular proof lists the construction/theorem facts used. See
   `angle(AB)+angle(CD)=angle(AD)+angle(BC)` without ever dividing a geometric
   relation. The 90-degree constant has order two, so two perpendicular relations
   correctly add to 180 degrees, while `2*x=0` never incorrectly implies `x=0`.
-- Large generated configurations automatically switch to a bounded sparse
-  multi-modulus lattice backend before exact Hermite coefficients can swell. It
-  checks 18 characteristics, including characteristic 2 for the primitive
-  no-angle-halving invariant, and avoids fixed-width coefficient overflow.
+- Large generated configurations automatically switch to sparse elimination over
+  two large prime fields before exact Hermite coefficients can swell. The prover
+  tracks the linear combination of original theorem facts, converts every field
+  coefficient to its balanced signed representative, and accepts the proof only
+  when both primes reconstruct the same coefficients and every absolute value is
+  at most `angle_coefficient_limit` (10,000 by default). Modular division such as
+  `1/2` reconstructs near half the prime and is therefore rejected.
 - The fixed-point chase adds cyclic converse facts and indexed kite consequences;
   orthocenter, circumcenter, incenter, midpoint, incidence, parallel,
   perpendicular, reflection, and angle-bisector constructions seed their standard
