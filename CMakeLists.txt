@@ -36,4 +36,9 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_points.geogen)
   set_tests_properties(adjustable_automatic_points PROPERTIES
     PASS_REGULAR_EXPRESSION "points=10")
+  add_test(NAME discard_coincident_points
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/coincident_points.geogen)
+  set_tests_properties(discard_coincident_points PROPERTIES
+    PASS_REGULAR_EXPRESSION "points=5"
+    FAIL_REGULAR_EXPRESSION "POINT X ")
 endif()

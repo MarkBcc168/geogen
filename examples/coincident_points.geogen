@@ -1,0 +1,8 @@
+mode generate
+option trials 3
+triangle A B C
+orthocenter H A B C
+# X is C because C is the orthocenter of triangle ABH.
+orthocenter X A B H
+# The discarded name remains a valid alias for C.
+midpoint Y X A

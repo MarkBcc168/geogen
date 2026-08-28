@@ -81,6 +81,13 @@ POINT M(A,B) [midpoint]
 The symbolic names are identical across random trials. In generation mode, only
 points successfully constructed in every trial are retained in the final list.
 
+Before insertion, every constructed point is compared with all existing points
+using a scale-aware numerical tolerance. A coincident result is discarded: it is
+not counted, printed, or used as a seed for automatic expansion. Its requested
+name is retained only as an internal alias of the canonical point, so subsequent
+explicit DSL commands remain valid. For example, constructing the orthocenter of
+`A,B,H(A,B,C)` aliases that result to `C` instead of creating a recursive duplicate.
+
 ### Point, line, and circle constructions
 
 ```text
