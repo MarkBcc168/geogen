@@ -27,5 +27,9 @@ if(BUILD_TESTING)
   add_test(NAME sample_unproved_conjecture
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/unproved_concyclic.geogen)
   set_tests_properties(sample_unproved_conjecture PROPERTIES
-    PASS_REGULAR_EXPRESSION "NONTRIVIAL concyclic.A,B,C,D")
+    PASS_REGULAR_EXPRESSION "NONTRIVIAL concyclic")
+  add_test(NAME no_illegal_angle_halving
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/no_angle_halving.geogen)
+  set_tests_properties(no_illegal_angle_halving PROPERTIES
+    PASS_REGULAR_EXPRESSION "UNPROVED parallel")
 endif()

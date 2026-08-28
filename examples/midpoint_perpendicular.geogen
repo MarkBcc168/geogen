@@ -1,7 +1,8 @@
 # The configuration from the project prompt.
 mode generate
 option show_easy 0
-triangle A 0 0 B 6 0 C 1 4
+option trials 7
+triangle A B C
 midpoint M B C
 perp_bisector p A M
 line AB A B

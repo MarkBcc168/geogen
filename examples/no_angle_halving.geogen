@@ -1,0 +1,7 @@
+# Knowing that BD bisects angle ABC does not imply BD is parallel to BA.
+mode prove
+triangle A B C
+line AC A C
+angle_bisector bisector A B C
+intersection_ll D bisector AC
+prove_parallel B D B A

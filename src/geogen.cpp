@@ -5,10 +5,12 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <numeric>
 #include <optional>
+#include <random>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -90,54 +92,78 @@ Point circumcenter(const Point& a, const Point& b, const Point& c, std::string n
           std::move(why)};
 }
 
-// Sparse modular elimination represents directed line-angle equations modulo pi.
-// Two large primes are checked; a false symbolic proof would require a collision in both.
+// Exact integer-lattice elimination for directed angles in R/(pi Z). Relations
+// may be added and subtracted, but never divided: 2*x=0 must not imply x=0.
 class AngleSystem {
  public:
-  using Coeff = std::map<int, std::int64_t>;
-  struct Equation { Coeff c; std::int64_t k{}; std::set<int> reasons; };
+  using Integer=std::int64_t;
+  using Coeff=std::map<int,Integer>;
+  struct Equation {Coeff c;std::set<int> reasons;};
 
  private:
-  static constexpr std::array<std::int64_t, 2> MOD{1000000007LL, 1000000009LL};
-  std::array<std::map<int, Equation>, 2> basis_;
+  std::vector<Equation> rows_;
+  mutable std::vector<Equation> basis_;
+  mutable bool dirty_=true;
   std::vector<std::string> reason_text_;
 
-  static std::int64_t norm(std::int64_t x, std::int64_t p) {
-    x %= p; if (x < 0) x += p; return x;
+  static Integer coefficient(const Equation& e,int column){
+    auto it=e.c.find(column);return it==e.c.end()?Integer(0):it->second;
   }
-  static std::int64_t mul(std::int64_t a, std::int64_t b, std::int64_t p) {
-    // Both residues are below 1.01e9, so their product fits in int64_t.
-    return (a * b) % p;
+  static Integer checked_multiply(Integer a,Integer b){
+    if(a==0||b==0)return 0;
+    constexpr Integer lo=std::numeric_limits<Integer>::min(),hi=std::numeric_limits<Integer>::max();
+    if((a==-1&&b==lo)||(b==-1&&a==lo))throw std::overflow_error("angle lattice coefficient overflow");
+    if(a>0){if((b>0&&a>hi/b)||(b<0&&b<lo/a))throw std::overflow_error("angle lattice coefficient overflow");}
+    else {if((b>0&&a<lo/b)||(b<0&&a<hi/b))throw std::overflow_error("angle lattice coefficient overflow");}
+    return a*b;
   }
-  static std::int64_t power(std::int64_t a, std::int64_t e, std::int64_t p) {
-    std::int64_t r = 1;
-    while (e) { if (e & 1) r = mul(r, a, p); a = mul(a, a, p); e >>= 1; }
-    return r;
+  static Integer checked_add(Integer a,Integer b){
+    constexpr Integer lo=std::numeric_limits<Integer>::min(),hi=std::numeric_limits<Integer>::max();
+    if((b>0&&a>hi-b)||(b<0&&a<lo-b))throw std::overflow_error("angle lattice coefficient overflow");
+    return a+b;
   }
-  static void add_scaled(Equation& x, const Equation& y, std::int64_t f,
-                         std::int64_t p) {
+  static void add_scaled(Equation& x,const Equation& y,const Integer& f){
+    if(f==0)return;
     for (auto [v, a] : y.c) {
-      auto nv = norm(x.c[v] + mul(f, a, p), p);
-      if (nv == 0) x.c.erase(v); else x.c[v] = nv;
+      Integer value=checked_add(x.c[v],checked_multiply(f,a));
+      if(value==0)x.c.erase(v);else x.c[v]=std::move(value);
     }
-    x.k = norm(x.k + mul(f, y.k, p), p);
     x.reasons.insert(y.reasons.begin(), y.reasons.end());
   }
-  static Equation converted(const Coeff& c, std::int64_t numerator,
-                            std::int64_t denominator, std::int64_t p) {
+  static Equation converted(const Coeff& c,std::int64_t numerator,
+                            std::int64_t denominator){
+    if(denominator==0||(2*numerator)%denominator!=0)
+      throw std::runtime_error("angle constant is not an integral multiple of pi/2");
     Equation e;
-    for (auto [v, a] : c) if (norm(a, p)) e.c[v] = norm(a, p);
-    e.k = mul(norm(numerator, p), power(norm(denominator, p), p - 2, p), p);
+    // Column 0 is h=pi/2; line-angle variable v occupies column v+1.
+    Integer half_turns=(2*numerator)/denominator;
+    if(half_turns!=0)e.c[0]=-half_turns;
+    for(auto [v,a]:c)if(a!=0)e.c[v+1]=a;
     return e;
   }
-  static void reduce(Equation& e, const std::map<int, Equation>& b, std::int64_t p) {
-    while (!e.c.empty()) {
-      int pivot = e.c.begin()->first;
-      auto it = b.find(pivot);
-      if (it == b.end()) break;
-      std::int64_t f = norm(-e.c.begin()->second, p);
-      add_scaled(e, it->second, f, p);
+
+  void rebuild()const{
+    if(!dirty_)return;
+    std::vector<Equation> work=rows_;
+    Equation period;period.c[0]=2;work.push_back(std::move(period)); // pi=0
+    std::size_t rank=0;int max_column=0;
+    for(const auto& row:work)if(!row.c.empty())max_column=std::max(max_column,row.c.rbegin()->first);
+    for(int col=0;col<=max_column&&rank<work.size();++col){
+      std::size_t chosen=rank;while(chosen<work.size()&&coefficient(work[chosen],col)==0)++chosen;
+      if(chosen==work.size())continue;
+      std::swap(work[rank],work[chosen]);
+      for(std::size_t i=rank+1;i<work.size();++i){
+        while(coefficient(work[i],col)!=0){
+          Integer a=coefficient(work[rank],col),b=coefficient(work[i],col);
+          add_scaled(work[rank],work[i],-(a/b));
+          std::swap(work[rank],work[i]);
+        }
+      }
+      if(coefficient(work[rank],col)<0)
+        for(auto& [_,value]:work[rank].c)value=-value;
+      ++rank;
     }
+    basis_.assign(work.begin(),work.begin()+static_cast<std::ptrdiff_t>(rank));dirty_=false;
   }
 
  public:
@@ -146,31 +172,23 @@ class AngleSystem {
   }
 
   bool add(const Coeff& c, std::int64_t num, std::int64_t den, const std::string& why) {
-    int rid = add_reason(why);
-    bool changed = false;
-    for (std::size_t mi = 0; mi < MOD.size(); ++mi) {
-      auto p = MOD[mi]; Equation e = converted(c, num, den, p); e.reasons.insert(rid);
-      reduce(e, basis_[mi], p);
-      if (e.c.empty()) continue;
-      int pivot = e.c.begin()->first;
-      auto inv = power(e.c.begin()->second, p - 2, p);
-      for (auto& [v, a] : e.c) a = mul(a, inv, p);
-      e.k = mul(e.k, inv, p);
-      basis_[mi][pivot] = std::move(e); changed = true;
-    }
-    return changed;
+    Equation e=converted(c,num,den);e.reasons.insert(add_reason(why));
+    rows_.push_back(std::move(e));dirty_=true;return true;
   }
 
   bool proves(const Coeff& c, std::int64_t num, std::int64_t den,
               std::set<int>* reasons = nullptr) const {
-    std::set<int> first;
-    for (std::size_t mi = 0; mi < MOD.size(); ++mi) {
-      Equation e = converted(c, num, den, MOD[mi]);
-      reduce(e, basis_[mi], MOD[mi]);
-      if (!e.c.empty() || e.k != 0) return false;
-      if (mi == 0) first = std::move(e.reasons);
+    rebuild();Equation e=converted(c,num,den);
+    for(const auto& row:basis_){
+      if(row.c.empty())continue;
+      int pivot=row.c.begin()->first;
+      Integer value=coefficient(e,pivot);if(value==0)continue;
+      Integer divisor=row.c.begin()->second;
+      if(value%divisor!=0)return false;
+      add_scaled(e,row,-(value/divisor));
     }
-    if (reasons) *reasons = std::move(first);
+    if(!e.c.empty())return false;
+    if(reasons)*reasons=std::move(e.reasons);
     return true;
   }
 
@@ -200,6 +218,11 @@ class Engine {
   std::vector<Candidate> circle_cache_;
   bool prove_mode_ = false, show_easy_ = false;
   std::size_t circle_budget_ = 25000000;
+  std::mt19937_64 rng_;
+
+  long double random_real(long double lo, long double hi) {
+    return std::uniform_real_distribution<long double>(lo, hi)(rng_);
+  }
 
   int pid(const std::string& s) const {
     auto it = point_id_.find(s); if (it == point_id_.end()) throw std::runtime_error("unknown point: " + s);
@@ -289,8 +312,13 @@ class Engine {
     std::set<int> all;
     for(std::size_t i=3;i<p.size();++i){
       int a=p[0],b=p[1],c=p[2],d=p[i]; std::set<int>w;
-      auto e=equation({{segment(a,b),1},{segment(c,d),1},{segment(a,d),-1},{segment(b,c),-1}});
-      if(!angles_.proves(e,0,1,&w)) return false;
+      int ab=segment(a,b),cd=segment(c,d),ac=segment(a,c),bd=segment(b,d);
+      int ad=segment(a,d),bc=segment(b,c);
+      auto e12=equation({{ab,1},{cd,1},{ac,-1},{bd,-1}});
+      auto e13=equation({{ab,1},{cd,1},{ad,-1},{bc,-1}});
+      auto e23=equation({{ac,1},{bd,1},{ad,-1},{bc,-1}});
+      if(!angles_.proves(e12,0,1,&w)&&!angles_.proves(e13,0,1,&w)&&
+         !angles_.proves(e23,0,1,&w)) return false;
       all.insert(w.begin(),w.end());
     }
     if(why)*why=std::move(all);
@@ -300,27 +328,50 @@ class Engine {
     std::vector<int> v; for(auto&s:a)v.push_back(pid(s)); return v;
   }
 
-  void initial_triangle(const std::vector<std::string>& t, bool cyclic_quad) {
-    std::size_t n=cyclic_quad?4:3, need=1+n*3;
-    if(t.size()!=need) throw std::runtime_error(t[0]+" expects names followed by x y for each point");
-    for(std::size_t i=0;i<n;++i) add_point({t[1+i*3],std::stold(t[2+i*3]),std::stold(t[3+i*3]),"initial"});
-    if(n==4 && cyclic_quad){ auto a=pid(t[1]),b=pid(t[4]),c=pid(t[7]),d=pid(t[10]);
-      Point o=circumcenter(points_[a],points_[b],points_[c],"@check","check");
-      if(!near(dist2(o,points_[a]),dist2(o,points_[d]),10)) throw std::runtime_error("cyclic_quad coordinates are not cyclic");
-      add_cyclic(a,b,c,d,"initial cyclic quadrilateral"); }
+  void initial_triangle(const std::vector<std::string>& t) {
+    if(t.size()!=4) throw std::runtime_error("triangle expects three point names");
+    std::array<Point,3> p;
+    do {
+      for(std::size_t i=0;i<3;++i)
+        p[i]={t[i+1],random_real(-10,10),random_real(-10,10),"random initial triangle"};
+    } while(std::fabs(cross(p[0],p[1],p[2]))<5.0L);
+    for(auto& q:p) add_point(std::move(q));
+  }
+
+  void initial_quadrilateral(const std::vector<std::string>& t, bool cyclic) {
+    if(t.size()!=5) throw std::runtime_error(t[0]+" expects four point names");
+    std::array<Point,4> p;
+    for(;;) {
+      std::array<long double,4> angle;
+      for(auto& a:angle) a=random_real(0,2*PI);
+      std::sort(angle.begin(),angle.end());
+      long double cx=random_real(-3,3),cy=random_real(-3,3),base=random_real(4,8);
+      for(std::size_t i=0;i<4;++i){
+        long double r=cyclic?base:base*random_real(0.80L,1.20L);
+        p[i]={t[i+1],cx+r*std::cos(angle[i]),cy+r*std::sin(angle[i]),
+              cyclic?"random initial cyclic quadrilateral":"random initial quadrilateral"};
+      }
+      long double sign=0;bool good=true;
+      for(int i=0;i<4;++i){long double z=cross(p[i],p[(i+1)%4],p[(i+2)%4]);
+        if(std::fabs(z)<1.0L){good=false;break;}if(i==0)sign=z;else if(z*sign<=0){good=false;break;}}
+      if(good)break;
+    }
+    for(auto& q:p) add_point(std::move(q));
+    if(cyclic) add_cyclic(pid(t[1]),pid(t[2]),pid(t[3]),pid(t[4]),
+                          "initial cyclic quadrilateral");
   }
 
   void execute(const std::vector<std::string>& t, int line_no) {
     auto need=[&](std::size_t n){if(t.size()!=n)throw std::runtime_error(t[0]+" expects "+std::to_string(n-1)+" arguments");};
     const auto& op=t[0];
     if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
-    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else throw std::runtime_error("unknown option "+t[1]);}
-    else if(op=="triangle") initial_triangle(t,false);
-    else if(op=="quadrilateral") { if(t.size()!=13)throw std::runtime_error("quadrilateral expects four named coordinates"); for(std::size_t i=0;i<4;++i)add_point({t[1+i*3],std::stold(t[2+i*3]),std::stold(t[3+i*3]),"initial"}); }
-    else if(op=="cyclic_quad") initial_triangle(t,true);
+    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="triangle") initial_triangle(t);
+    else if(op=="quadrilateral") initial_quadrilateral(t,false);
+    else if(op=="cyclic_quad") initial_quadrilateral(t,true);
     else if(op=="point"){need(4);add_point({t[1],std::stold(t[2]),std::stold(t[3]),"declared"});}
     else if(op=="line"){need(4);int a=pid(t[2]),b=pid(t[3]);int id=add_line(through(t[1],points_[a],points_[b],op));parallel_fact(id,segment(a,b),"definition line("+t[2]+","+t[3]+")");incidence(a,id,"line incidence");incidence(b,id,"line incidence");}
-    else if(op=="midpoint"){need(4);int a=pid(t[2]),b=pid(t[3]);add_point({t[1],(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,op});int m=pid(t[1]);parallel_fact(segment(a,m),segment(a,b),"midpoint collinearity "+t[1]);equal_length(a,m,m,b,"midpoint lengths");}
+    else if(op=="midpoint"){need(4);int a=pid(t[2]),b=pid(t[3]);add_point({t[1],(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,op});int m=pid(t[1]);parallel_fact(segment(a,m),segment(a,b),"midpoint collinearity "+t[1]);parallel_fact(segment(b,m),segment(a,b),"midpoint collinearity "+t[1]);equal_length(a,m,m,b,"midpoint lengths");}
     else if(op=="perp_bisector"){need(4);int a=pid(t[2]),b=pid(t[3]);Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};Line base=through("",points_[a],points_[b],"");Line l{t[1],base.b,-base.a,-(base.b*m.x-base.a*m.y),op};int id=add_line(l);perpendicular_fact(id,segment(a,b),"perpendicular bisector "+t[1]);}
     else if(op=="parallel"||op=="perpendicular"){need(4);int p=pid(t[2]),base=lid(t[3]);const Line& q=lines_[base];Line l;if(op=="parallel")l={t[1],q.a,q.b,-q.a*points_[p].x-q.b*points_[p].y,op};else l={t[1],q.b,-q.a,-q.b*points_[p].x+q.a*points_[p].y,op};int id=add_line(l);incidence(p,id,op+" through point");if(op=="parallel")parallel_fact(id,base,"parallel construction "+t[1]);else perpendicular_fact(id,base,"perpendicular construction "+t[1]);}
     else if(op=="angle_bisector"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double ux=points_[a].x-points_[b].x,uy=points_[a].y-points_[b].y,vx=points_[c].x-points_[b].x,vy=points_[c].y-points_[b].y;long double un=std::hypotl(ux,uy),vn=std::hypotl(vx,vy);Point q{"",points_[b].x+ux/un+vx/vn,points_[b].y+uy/un+vy/vn,""};int id=add_line(through(t[1],points_[b],q,op));incidence(b,id,"angle bisector through vertex");angles_.add(equation({{id,2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"angle bisector "+t[1]);}
@@ -405,10 +456,70 @@ class Engine {
     }catch(const std::exception&e){std::cout<<"ERROR goal: "<<e.what()<<"\n";}}}
 
  public:
+  explicit Engine(std::uint64_t seed):rng_(seed){}
   void parse(std::istream& in) {std::string line;int no=0;while(std::getline(in,line)){++no;auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);std::istringstream ss(line);std::vector<std::string>t;std::string x;while(ss>>x)t.push_back(x);if(t.empty())continue;try{execute(t,no);}catch(const std::exception&e){throw std::runtime_error("line "+std::to_string(no)+": "+e.what());}}}
   void report(){geometry_closure();std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";if(prove_mode_||!goals_.empty()){run_goals();return;}auto ls=detect_lines();std::size_t easy=0,hard=0;for(auto&x:ls){std::set<int>w;bool e=proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}for(auto&x:circle_cache_){std::set<int>w;bool e=proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";}
 };
 
 } // namespace geogen
 
-int main(int argc,char**argv){try{std::ios::sync_with_stdio(false);std::cin.tie(nullptr);geogen::Engine e;if(argc>2){std::cerr<<"usage: geogen [input.geogen]\n";return 2;}if(argc==2){std::ifstream f(argv[1]);if(!f)throw std::runtime_error("cannot open input file");e.parse(f);}else e.parse(std::cin);e.report();return 0;}catch(const std::exception&e){std::cerr<<"geogen: "<<e.what()<<'\n';return 1;}}
+namespace {
+
+struct RunSettings {
+  bool prove=false,show_easy=false;
+  int trials=5;
+  std::uint64_t seed=0x47454f47454eULL;
+};
+
+RunSettings read_settings(const std::string& input) {
+  RunSettings s;std::istringstream in(input);std::string line;
+  while(std::getline(in,line)){
+    auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);
+    std::istringstream row(line);std::string a,b,c;if(!(row>>a))continue;
+    if(a=="mode"&&row>>b)s.prove=(b=="prove");
+    if(a=="option"&&row>>b>>c){
+      if(b=="trials")s.trials=std::stoi(c);
+      else if(b=="seed")s.seed=std::stoull(c);
+      else if(b=="show_easy")s.show_easy=std::stoi(c)!=0;
+    }
+  }
+  if(s.trials<1||s.trials>100)throw std::runtime_error("option trials must be between 1 and 100");
+  return s;
+}
+
+std::string execute_once(const std::string& input,std::uint64_t seed) {
+  geogen::Engine e(seed);std::istringstream in(input);e.parse(in);
+  std::ostringstream captured;auto* old=std::cout.rdbuf(captured.rdbuf());
+  try{e.report();std::cout.rdbuf(old);}catch(...){std::cout.rdbuf(old);throw;}
+  return captured.str();
+}
+
+std::set<std::string> findings(const std::string& report,bool show_easy) {
+  std::set<std::string> out;std::istringstream in(report);std::string line;
+  while(std::getline(in,line))if(line.rfind("NONTRIVIAL ",0)==0||
+      (show_easy&&line.rfind("EASY ",0)==0))out.insert(line);
+  return out;
+}
+
+} // namespace
+
+int main(int argc,char**argv){try{
+  std::ios::sync_with_stdio(false);std::cin.tie(nullptr);
+  if(argc>2){std::cerr<<"usage: geogen [input.geogen]\n";return 2;}
+  std::string input;
+  if(argc==2){std::ifstream f(argv[1]);if(!f)throw std::runtime_error("cannot open input file");input.assign(std::istreambuf_iterator<char>(f),{});}
+  else input.assign(std::istreambuf_iterator<char>(std::cin),{});
+  RunSettings settings=read_settings(input);
+  if(settings.prove){std::cout<<execute_once(input,settings.seed);return 0;}
+  std::set<std::string> common;
+  for(int trial=0;trial<settings.trials;++trial){
+    std::uint64_t trial_seed=settings.seed+0x9e3779b97f4a7c15ULL*static_cast<std::uint64_t>(trial+1);
+    auto current=findings(execute_once(input,trial_seed),settings.show_easy);
+    if(trial==0)common=std::move(current);
+    else {std::set<std::string> both;std::set_intersection(common.begin(),common.end(),current.begin(),current.end(),std::inserter(both,both.end()));common=std::move(both);}
+  }
+  std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed<<"\n";
+  for(const auto& line:common)std::cout<<line<<'\n';
+  std::cout<<"summary stable_coincidences="<<common.size()<<"\n";
+  return 0;
+}catch(const std::exception&e){std::cerr<<"geogen: "<<e.what()<<'\n';return 1;}}

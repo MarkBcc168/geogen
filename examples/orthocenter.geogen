@@ -1,4 +1,4 @@
 mode prove
-triangle A 0 4 B -3 0 C 5 0
+triangle A B C
 orthocenter H A B C
 prove_perpendicular C H A B
