@@ -1,0 +1,4 @@
+mode generate
+option trials 3
+option max_points 10
+triangle A B C
