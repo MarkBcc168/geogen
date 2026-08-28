@@ -65,4 +65,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
   set_tests_properties(circumcenter_isosceles_filter PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED concyclic.A,O1,O2,O3")
+  add_test(NAME perpendicular_bisector_circumcenter_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
+  set_tests_properties(perpendicular_bisector_circumcenter_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.B,F,M,O1")
 endif()

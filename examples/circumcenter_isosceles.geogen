@@ -1,7 +1,11 @@
 mode prove
 triangle A B C
 midpoint M B C
+perp_bisector p A M
+line AB A B
+intersection_ll F p AB
 circumcenter O1 A B M
 circumcenter O2 A C M
 circumcenter O3 A B C
 prove_concyclic A O1 O2 O3
+prove_concyclic B F M O1
