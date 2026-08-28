@@ -1,0 +1,7 @@
+mode prove
+triangle A B C
+line AC A C
+foot D B AC
+midpoint M A B
+prove_equal_distance M A M B
+prove_equal_distance M A M D

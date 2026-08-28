@@ -1,0 +1,12 @@
+mode prove
+triangle A B C
+midpoint M B C
+perp_bisector p A M
+line AB A B
+line AC A C
+intersection_ll E p AC
+intersection_ll F p AB
+orthocenter H M E F
+prove_equal_distance E A E M
+prove_equal_distance F A F M
+prove_concyclic A E F H

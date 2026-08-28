@@ -27,7 +27,7 @@ if(BUILD_TESTING)
   add_test(NAME sample_unproved_conjecture
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/unproved_concyclic.geogen)
   set_tests_properties(sample_unproved_conjecture PROPERTIES
-    PASS_REGULAR_EXPRESSION "NONTRIVIAL concyclic")
+    PASS_REGULAR_EXPRESSION "stable_coincidences=0")
   add_test(NAME no_illegal_angle_halving
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/no_angle_halving.geogen)
   set_tests_properties(no_illegal_angle_halving PROPERTIES
@@ -41,4 +41,24 @@ if(BUILD_TESTING)
   set_tests_properties(discard_coincident_points PROPERTIES
     PASS_REGULAR_EXPRESSION "points=5"
     FAIL_REGULAR_EXPRESSION "POINT X ")
+  add_test(NAME right_triangle_midpoint_rule
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/right_triangle_midpoint.geogen)
+  set_tests_properties(right_triangle_midpoint_rule PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED equal_distance.M,A,M,D")
+  add_test(NAME prompt_concyclic_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/prompt_concyclic.geogen)
+  set_tests_properties(prompt_concyclic_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,E,F,H")
+  add_test(NAME definition_collinearity_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/definition_collinearity.geogen)
+  set_tests_properties(definition_collinearity_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear")
+  add_test(NAME midpoint_midline_rule
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/midline.geogen)
+  set_tests_properties(midpoint_midline_rule PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED parallel")
+  add_test(NAME automatic_known_root_line_circle
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_line_circle.geogen)
+  set_tests_properties(automatic_known_root_line_circle PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT X.secant,omega,A")
 endif()

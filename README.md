@@ -37,6 +37,7 @@ option circle_budget 25000000  # skip general scan above this many triples
 option trials 5                # independent random realizations in generate mode
 option seed 20260828            # reproducible pseudorandom seed
 option max_points 30            # automatically expand to at most 30 points
+option line_circle_intersections 1 # generate quadratic-free second intersections
 
 triangle A B C
 quadrilateral A B C D
@@ -65,6 +66,11 @@ The generator repeatedly tries circumcenters, orthocenters, and midpoints in a
 stable symbolic order until it reaches `N` points (or exhausts applicable
 constructions). The limit includes initial and explicitly constructed points and
 may be set from 1 through 5000.
+
+`option line_circle_intersections 1` additionally scans every non-segment line and
+circle with a symbolically known common point. It constructs the other
+intersection before the ordinary point expansion. This pass also works without
+`max_points`; with a maximum, it respects the remaining point capacity.
 
 Every report lists the resulting points without trial-specific coordinates:
 
@@ -122,6 +128,18 @@ intersection_cc_known Y circle_one circle_two K
 no distinct second point. Thus configuration construction never invokes a
 general quadratic solver.
 
+For example, the following automatically creates a point named
+`X(secant,omega,A)` at the second intersection:
+
+```text
+mode generate
+option line_circle_intersections 1
+triangle A B C
+incenter I A B C
+line secant A I
+circumcircle omega A B C
+```
+
 ### Independent prover
 
 Use `mode prove`, describe the configuration with the same commands, then add
@@ -155,6 +173,10 @@ successful angular proof lists the construction/theorem facts used. See
   orthocenter, circumcenter, incenter, midpoint, incidence, parallel,
   perpendicular, reflection, and angle-bisector constructions seed their standard
   relations. It stops when a pass adds no facts.
+- Midpoint closure includes the triangle midline theorem and the right-triangle
+  hypotenuse-midpoint theorem. Perpendicular-bisector incidences add equal
+  distances, kites add their full reflection-angle relation, and the standard six
+  side-midpoint/altitude-foot configuration invokes the nine-point-circle rule.
 - A numerical coincidence which follows from this fact base is labeled `EASY`
   and suppressed by default. Remaining statements are printed as `NONTRIVIAL`.
 

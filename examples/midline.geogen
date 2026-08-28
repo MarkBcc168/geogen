@@ -1,0 +1,5 @@
+mode prove
+triangle A B C
+midpoint P A B
+midpoint Q A C
+prove_parallel P Q B C
