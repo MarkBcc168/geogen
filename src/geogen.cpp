@@ -96,31 +96,36 @@ Point circumcenter(const Point& a, const Point& b, const Point& c, std::string n
 // may be added and subtracted, but never divided: 2*x=0 must not imply x=0.
 class AngleSystem {
  public:
-  using Integer=std::int64_t;
+  using Integer=__int128_t;
   using Coeff=std::map<int,Integer>;
   struct Equation {Coeff c;std::set<int> reasons;};
 
  private:
+  static constexpr int HALF_TURN_COLUMN=1000000000;
   std::vector<Equation> rows_;
   mutable std::vector<Equation> basis_;
   mutable bool dirty_=true;
+  mutable bool modular_mode_=false;
+  struct ModularEquation {std::map<int,std::int64_t> c;std::set<int> reasons;};
+  static constexpr std::array<std::int64_t,18> MODULI{
+    2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,1000000007LL,1000000009LL};
+  mutable std::vector<std::map<int,ModularEquation>> modular_basis_;
   std::vector<std::string> reason_text_;
 
   static Integer coefficient(const Equation& e,int column){
     auto it=e.c.find(column);return it==e.c.end()?Integer(0):it->second;
   }
   static Integer checked_multiply(Integer a,Integer b){
-    if(a==0||b==0)return 0;
-    constexpr Integer lo=std::numeric_limits<Integer>::min(),hi=std::numeric_limits<Integer>::max();
-    if((a==-1&&b==lo)||(b==-1&&a==lo))throw std::overflow_error("angle lattice coefficient overflow");
-    if(a>0){if((b>0&&a>hi/b)||(b<0&&b<lo/a))throw std::overflow_error("angle lattice coefficient overflow");}
-    else {if((b>0&&a<lo/b)||(b<0&&a<hi/b))throw std::overflow_error("angle lattice coefficient overflow");}
-    return a*b;
+    Integer result;
+    if(__builtin_mul_overflow(a,b,&result))
+      throw std::overflow_error("angle lattice coefficient overflow");
+    return result;
   }
   static Integer checked_add(Integer a,Integer b){
-    constexpr Integer lo=std::numeric_limits<Integer>::min(),hi=std::numeric_limits<Integer>::max();
-    if((b>0&&a>hi-b)||(b<0&&a<lo-b))throw std::overflow_error("angle lattice coefficient overflow");
-    return a+b;
+    Integer result;
+    if(__builtin_add_overflow(a,b,&result))
+      throw std::overflow_error("angle lattice coefficient overflow");
+    return result;
   }
   static void add_scaled(Equation& x,const Equation& y,const Integer& f){
     if(f==0)return;
@@ -130,25 +135,58 @@ class AngleSystem {
     }
     x.reasons.insert(y.reasons.begin(), y.reasons.end());
   }
+  static std::int64_t mod_norm(std::int64_t x,std::int64_t p){x%=p;if(x<0)x+=p;return x;}
+  static std::int64_t mod_mul(std::int64_t a,std::int64_t b,std::int64_t p){return (a*b)%p;}
+  static std::int64_t mod_power(std::int64_t a,std::int64_t e,std::int64_t p){std::int64_t r=1;while(e){if(e&1)r=mod_mul(r,a,p);a=mod_mul(a,a,p);e>>=1;}return r;}
+  static ModularEquation modularized(const Equation&e,std::int64_t p){
+    ModularEquation out;out.reasons=e.reasons;for(const auto&[v,a]:e.c){
+      std::int64_t value=mod_norm(static_cast<std::int64_t>(a%p),p);if(value)out.c[v]=value;}
+    return out;
+  }
+  static void modular_add_scaled(ModularEquation&x,const ModularEquation&y,std::int64_t f,std::int64_t p){
+    if(!f)return;
+    for(auto[v,a]:y.c){auto value=mod_norm(x.c[v]+mod_mul(f,a,p),p);if(value)x.c[v]=value;else x.c.erase(v);}
+    x.reasons.insert(y.reasons.begin(),y.reasons.end());
+  }
+  static void modular_reduce(ModularEquation&e,const std::map<int,ModularEquation>&basis,std::int64_t p){
+    while(!e.c.empty()){int pivot=e.c.begin()->first;auto it=basis.find(pivot);if(it==basis.end())break;modular_add_scaled(e,it->second,mod_norm(-e.c.begin()->second,p),p);}
+  }
+  void modular_insert(const Equation&e,std::size_t mi)const{
+    auto p=MODULI[mi];auto row=modularized(e,p);modular_reduce(row,modular_basis_[mi],p);if(row.c.empty())return;
+    int pivot=row.c.begin()->first;auto inv=mod_power(row.c.begin()->second,p-2,p);
+    for(auto&[_,a]:row.c)a=mod_mul(a,inv,p);
+    modular_basis_[mi][pivot]=std::move(row);
+  }
+  void rebuild_modular()const{
+    modular_basis_.assign(MODULI.size(),{});Equation period;period.c[HALF_TURN_COLUMN]=2;
+    for(std::size_t mi=0;mi<MODULI.size();++mi){modular_insert(period,mi);for(const auto&row:rows_)modular_insert(row,mi);}
+    basis_.clear();modular_mode_=true;dirty_=false;
+  }
   static Equation converted(const Coeff& c,std::int64_t numerator,
                             std::int64_t denominator){
     if(denominator==0||(2*numerator)%denominator!=0)
       throw std::runtime_error("angle constant is not an integral multiple of pi/2");
     Equation e;
-    // Column 0 is h=pi/2; line-angle variable v occupies column v+1.
+    // h=pi/2 is deliberately ordered after all line variables. Eliminating this
+    // dense torsion column first causes catastrophic coefficient swell.
     Integer half_turns=(2*numerator)/denominator;
-    if(half_turns!=0)e.c[0]=-half_turns;
-    for(auto [v,a]:c)if(a!=0)e.c[v+1]=a;
+    if(half_turns!=0)e.c[HALF_TURN_COLUMN]=-half_turns;
+    for(auto [v,a]:c)if(a!=0)e.c[v]=a;
     return e;
   }
 
   void rebuild()const{
     if(!dirty_)return;
+    // Exact HNF is preferred for small theorem bases. Large generated figures
+    // use a multi-modulus lattice certificate to avoid unbounded coefficient
+    // swell; modulus 2 specifically preserves the no-angle-halving invariant.
+    if(rows_.size()>120){rebuild_modular();return;}
+    modular_mode_=false;
     std::vector<Equation> work=rows_;
-    Equation period;period.c[0]=2;work.push_back(std::move(period)); // pi=0
-    std::size_t rank=0;int max_column=0;
-    for(const auto& row:work)if(!row.c.empty())max_column=std::max(max_column,row.c.rbegin()->first);
-    for(int col=0;col<=max_column&&rank<work.size();++col){
+    Equation period;period.c[HALF_TURN_COLUMN]=2;work.push_back(std::move(period)); // pi=0
+    std::size_t rank=0;std::set<int> occupied;
+    for(const auto&row:work)for(const auto&[column,_]:row.c)occupied.insert(column);
+    for(int col:occupied){if(rank>=work.size())break;
       std::size_t chosen=rank;while(chosen<work.size()&&coefficient(work[chosen],col)==0)++chosen;
       if(chosen==work.size())continue;
       std::swap(work[rank],work[chosen]);
@@ -173,12 +211,20 @@ class AngleSystem {
 
   bool add(const Coeff& c, std::int64_t num, std::int64_t den, const std::string& why) {
     Equation e=converted(c,num,den);e.reasons.insert(add_reason(why));
-    rows_.push_back(std::move(e));dirty_=true;return true;
+    rows_.push_back(e);
+    if(modular_mode_&&!dirty_)for(std::size_t mi=0;mi<MODULI.size();++mi)modular_insert(e,mi);
+    else dirty_=true;
+    return true;
   }
 
   bool proves(const Coeff& c, std::int64_t num, std::int64_t den,
               std::set<int>* reasons = nullptr) const {
     rebuild();Equation e=converted(c,num,den);
+    if(modular_mode_){std::set<int> first;for(std::size_t mi=0;mi<MODULI.size();++mi){
+      auto row=modularized(e,MODULI[mi]);modular_reduce(row,modular_basis_[mi],MODULI[mi]);if(!row.c.empty())return false;if(mi==0)first=std::move(row.reasons);}
+      if(reasons)*reasons=std::move(first);
+      return true;
+    }
     for(const auto& row:basis_){
       if(row.c.empty())continue;
       int pivot=row.c.begin()->first;

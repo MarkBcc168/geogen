@@ -164,11 +164,15 @@ successful angular proof lists the construction/theorem facts used. See
 - Declared circles are scanned in `O(n)`. General concyclicity uses a fixed-anchor
   circumcircle hash: `O(n^3)` time, `O(n^2)` peak memory, and no `O(n^4)` scan.
   `circle_budget` lets very large runs retain only declared-circle detection.
-- Directed line angles live modulo 180 degrees. An exact sparse integer-lattice
-  basis tracks equations such as
+- Directed line angles live modulo 180 degrees. For ordinary fact bases, an exact
+  sparse integer-lattice basis tracks equations such as
   `angle(AB)+angle(CD)=angle(AD)+angle(BC)` without ever dividing a geometric
   relation. The 90-degree constant has order two, so two perpendicular relations
   correctly add to 180 degrees, while `2*x=0` never incorrectly implies `x=0`.
+- Large generated configurations automatically switch to a bounded sparse
+  multi-modulus lattice backend before exact Hermite coefficients can swell. It
+  checks 18 characteristics, including characteristic 2 for the primitive
+  no-angle-halving invariant, and avoids fixed-width coefficient overflow.
 - The fixed-point chase adds cyclic converse facts and indexed kite consequences;
   orthocenter, circumcenter, incenter, midpoint, incidence, parallel,
   perpendicular, reflection, and angle-bisector constructions seed their standard

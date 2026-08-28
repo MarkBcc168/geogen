@@ -15,7 +15,7 @@ if(BUILD_TESTING)
   add_test(NAME sample_generate
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/midpoint_perpendicular.geogen)
   set_tests_properties(sample_generate PROPERTIES
-    PASS_REGULAR_EXPRESSION "GEOGEN REPORT")
+    PASS_REGULAR_EXPRESSION "points=50")
   add_test(NAME sample_prove
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthocenter.geogen)
   set_tests_properties(sample_prove PROPERTIES
