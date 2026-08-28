@@ -202,6 +202,9 @@ class AngleSystem {
 
 struct Goal { std::string kind; std::vector<std::string> args; };
 struct Candidate { std::string kind; std::vector<int> points; std::string source; };
+struct MidpointFact {int midpoint,a,b;};
+struct PerpendicularBisectorFact {int line,a,b;};
+struct FootFact {int foot,source,line;};
 
 class Engine {
   std::vector<Point> points_;
@@ -216,7 +219,12 @@ class Engine {
   std::vector<std::array<int,4>> cyclic_facts_;
   std::vector<Goal> goals_;
   std::vector<Candidate> circle_cache_;
+  std::vector<MidpointFact> midpoint_facts_;
+  std::vector<PerpendicularBisectorFact> perpendicular_bisectors_;
+  std::vector<FootFact> foot_facts_;
+  std::vector<std::array<int,3>> initial_triangles_;
   bool prove_mode_ = false, show_easy_ = false;
+  bool auto_line_circle_=false;
   std::size_t circle_budget_ = 25000000;
   std::size_t max_points_=0;
   std::mt19937_64 rng_;
@@ -269,6 +277,7 @@ class Engine {
     if (it != segment_line_.end()) return it->second;
     std::string n = "@" + points_[a].name + points_[b].name;
     int id = add_line(through(n, points_[a], points_[b], "segment"));
+    line_points_[static_cast<std::size_t>(id)]={a,b};
     segment_line_[key] = id; return id;
   }
   static AngleSystem::Coeff equation(std::initializer_list<std::pair<int,int>> xs) {
@@ -281,22 +290,39 @@ class Engine {
     angles_.add(equation({{x,1},{y,-1}}), 1, 2, why);
   }
   void incidence(int p, int l, const std::string& why) {
-    for (int q : line_points_[static_cast<std::size_t>(l)])
+    auto known=line_points_[static_cast<std::size_t>(l)];
+    for (int q : known)
       if (p != q) parallel_fact(segment(p, q), l, why);
     auto& on = line_points_[static_cast<std::size_t>(l)];
     if (std::find(on.begin(), on.end(), p) == on.end()) on.push_back(p);
+  }
+  void inherit_collinearity(int p,int a,int b,const std::string& why){
+    segment(a,b);
+    std::size_t count=line_points_.size();
+    for(std::size_t l=0;l<count;++l){const auto&on=line_points_[l];
+      if(std::find(on.begin(),on.end(),a)!=on.end()&&
+         std::find(on.begin(),on.end(),b)!=on.end())incidence(p,static_cast<int>(l),why);
+    }
   }
   void circle_incidence(int p, int c) {
     auto& on = circle_points_[static_cast<std::size_t>(c)];
     if (std::find(on.begin(), on.end(), p) == on.end()) on.push_back(p);
   }
   static auto lenkey(int a, int b) { if (a>b) std::swap(a,b); return std::make_pair(a,b); }
-  void equal_length(int a, int b, int c, int d, const std::string&) {
-    auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y); equal_lengths_.insert({x,y});
+  bool equal_length(int a, int b, int c, int d, const std::string&) {
+    auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y);
+    return equal_lengths_.insert({x,y}).second;
   }
   bool length_equal(int a,int b,int c,int d) const {
     auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y);
-    return x==y || equal_lengths_.count({x,y});
+    if(x==y||equal_lengths_.count({x,y}))return true;
+    std::map<std::pair<int,int>,std::vector<std::pair<int,int>>> graph;
+    for(const auto&f:equal_lengths_){graph[f.first].push_back(f.second);graph[f.second].push_back(f.first);}
+    std::set<std::pair<int,int>> seen{x};std::vector<std::pair<int,int>> todo{x};
+    while(!todo.empty()){auto u=todo.back();todo.pop_back();for(auto v:graph[u]){
+      if(v==y)return true;
+      if(seen.insert(v).second)todo.push_back(v);}}
+    return false;
   }
   void add_cyclic(int a, int b, int c, int d, const std::string& why) {
     std::array<int,4> q{a,b,c,d}; auto sorted=q; std::sort(sorted.begin(),sorted.end());
@@ -309,6 +335,10 @@ class Engine {
   }
   bool proves_collinear(const std::vector<int>& p, std::set<int>* why=nullptr) {
     if (p.size()<3) return false;
+    for(const auto&on:line_points_){bool all=true;
+      for(int x:p)if(std::find(on.begin(),on.end(),x)==on.end()){all=false;break;}
+      if(all)return true;
+    }
     int base=segment(p[0],p[1]);
     std::set<int> all;
     for(std::size_t i=2;i<p.size();++i){ std::set<int> w;
@@ -346,6 +376,7 @@ class Engine {
         p[i]={t[i+1],random_real(-10,10),random_real(-10,10),"random initial triangle"};
     } while(std::fabs(cross(p[0],p[1],p[2]))<5.0L);
     for(auto& q:p) add_point(std::move(q));
+    initial_triangles_.push_back({pid(t[1]),pid(t[2]),pid(t[3])});
   }
 
   void initial_quadrilateral(const std::vector<std::string>& t, bool cyclic) {
@@ -375,19 +406,19 @@ class Engine {
     auto need=[&](std::size_t n){if(t.size()!=n)throw std::runtime_error(t[0]+" expects "+std::to_string(n-1)+" arguments");};
     const auto& op=t[0];
     if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
-    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
     else if(op=="triangle") initial_triangle(t);
     else if(op=="quadrilateral") initial_quadrilateral(t,false);
     else if(op=="cyclic_quad") initial_quadrilateral(t,true);
     else if(op=="point"){need(4);add_point({t[1],std::stold(t[2]),std::stold(t[3]),"declared"});}
     else if(op=="line"){need(4);int a=pid(t[2]),b=pid(t[3]);int id=add_line(through(t[1],points_[a],points_[b],op));parallel_fact(id,segment(a,b),"definition line("+t[2]+","+t[3]+")");incidence(a,id,"line incidence");incidence(b,id,"line incidence");}
-    else if(op=="midpoint"){need(4);int a=pid(t[2]),b=pid(t[3]);if(!add_point({t[1],(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,op}))return;int m=pid(t[1]);parallel_fact(segment(a,m),segment(a,b),"midpoint collinearity "+t[1]);parallel_fact(segment(b,m),segment(a,b),"midpoint collinearity "+t[1]);equal_length(a,m,m,b,"midpoint lengths");}
-    else if(op=="perp_bisector"){need(4);int a=pid(t[2]),b=pid(t[3]);Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};Line base=through("",points_[a],points_[b],"");Line l{t[1],base.b,-base.a,-(base.b*m.x-base.a*m.y),op};int id=add_line(l);perpendicular_fact(id,segment(a,b),"perpendicular bisector "+t[1]);}
+    else if(op=="midpoint"){need(4);int a=pid(t[2]),b=pid(t[3]);if(!add_point({t[1],(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,op}))return;int m=pid(t[1]);parallel_fact(segment(a,m),segment(a,b),"midpoint collinearity "+t[1]);parallel_fact(segment(b,m),segment(a,b),"midpoint collinearity "+t[1]);inherit_collinearity(m,a,b,"midpoint incidence "+t[1]);equal_length(a,m,m,b,"midpoint lengths");for(const auto&f:midpoint_facts_){int shared=-1;if(a==f.a||a==f.b)shared=a;else if(b==f.a||b==f.b)shared=b;if(shared<0)continue;int p=a==shared?b:a,q=f.a==shared?f.b:f.a;if(p!=q)parallel_fact(segment(m,f.midpoint),segment(p,q),"triangle midline theorem "+t[1]+","+points_[f.midpoint].name);}midpoint_facts_.push_back({m,a,b});}
+    else if(op=="perp_bisector"){need(4);int a=pid(t[2]),b=pid(t[3]);Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};Line base=through("",points_[a],points_[b],"");Line l{t[1],base.b,-base.a,-(base.b*m.x-base.a*m.y),op};int id=add_line(l);perpendicular_fact(id,segment(a,b),"perpendicular bisector "+t[1]);perpendicular_bisectors_.push_back({id,a,b});}
     else if(op=="parallel"||op=="perpendicular"){need(4);int p=pid(t[2]),base=lid(t[3]);const Line& q=lines_[base];Line l;if(op=="parallel")l={t[1],q.a,q.b,-q.a*points_[p].x-q.b*points_[p].y,op};else l={t[1],q.b,-q.a,-q.b*points_[p].x+q.a*points_[p].y,op};int id=add_line(l);incidence(p,id,op+" through point");if(op=="parallel")parallel_fact(id,base,"parallel construction "+t[1]);else perpendicular_fact(id,base,"perpendicular construction "+t[1]);}
     else if(op=="angle_bisector"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double ux=points_[a].x-points_[b].x,uy=points_[a].y-points_[b].y,vx=points_[c].x-points_[b].x,vy=points_[c].y-points_[b].y;long double un=std::hypotl(ux,uy),vn=std::hypotl(vx,vy);Point q{"",points_[b].x+ux/un+vx/vn,points_[b].y+uy/un+vy/vn,""};int id=add_line(through(t[1],points_[b],q,op));incidence(b,id,"angle bisector through vertex");angles_.add(equation({{id,2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"angle bisector "+t[1]);}
     else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op}))return;int x=pid(t[1]);perpendicular_fact(segment(p,x),l,"line reflection "+t[1]);}
-    else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);if(!add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op}))return;int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);equal_length(p,o,o,x,"point reflection lengths");}
-    else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op}))return;int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);}
+    else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);if(!add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op}))return;int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);inherit_collinearity(x,p,o,"point reflection incidence "+t[1]);equal_length(p,o,o,x,"point reflection lengths");}
+    else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op}))return;int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);foot_facts_.push_back({x,p,l});}
     else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);if(!add_point(intersect(lines_[a],lines_[b],t[1],op)))return;int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
     else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);if(!add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op)))return;int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");}
     else if(op=="orthocenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Line bc=through("",points_[b],points_[c],""),ac=through("",points_[a],points_[c],"");Line ha{"",bc.b,-bc.a,-bc.b*points_[a].x+bc.a*points_[a].y,""},hb{"",ac.b,-ac.a,-ac.b*points_[b].x+ac.a*points_[b].y,""};if(!add_point(intersect(ha,hb,t[1],op)))return;int h=pid(t[1]);perpendicular_fact(segment(a,h),segment(b,c),"orthocenter altitude 1 "+t[1]);perpendicular_fact(segment(b,h),segment(a,c),"orthocenter altitude 2 "+t[1]);perpendicular_fact(segment(c,h),segment(a,b),"orthocenter closure "+t[1]);}
@@ -412,8 +443,52 @@ class Engine {
     circle_cache_ = detect_circles(true);
     bool changed=true;int rounds=0;
     while(changed&&rounds++<8){changed=false;
+      // Every point of a perpendicular bisector is equidistant from its endpoints.
+      for(const auto&pb:perpendicular_bisectors_)for(int x:line_points_[pb.line])
+        changed|=equal_length(x,pb.a,x,pb.b,"perpendicular bisector distance theorem");
+
+      // In a right triangle, the midpoint of the hypotenuse is equidistant from
+      // all three vertices. This is deliberately derived without halving angles.
+      for(const auto&mf:midpoint_facts_)for(int b=0;b<(int)points_.size();++b)
+        if(b!=mf.a&&b!=mf.b&&b!=mf.midpoint){
+          if(angles_.proves(equation({{segment(mf.a,b),1},{segment(b,mf.b),-1}}),1,2)){
+            changed|=equal_length(mf.midpoint,mf.a,mf.midpoint,b,"right triangle midpoint theorem");
+            changed|=equal_length(mf.midpoint,mf.a,mf.midpoint,mf.b,"right triangle midpoint theorem");
+          }
+        }
+
+      // Targeted nine-point-circle theorem. The component facts (three side
+      // midpoints and three altitude feet) are all construction-certified.
+      auto midpoint_of=[&](int a,int b){
+        for(const auto&f:midpoint_facts_)
+          if((f.a==a&&f.b==b)||(f.a==b&&f.b==a))return f.midpoint;
+        return -1;
+      };
+      auto foot_on=[&](int source,int a,int b){for(const auto&f:foot_facts_)if(f.source==source){
+        const auto&on=line_points_[f.line];if(std::find(on.begin(),on.end(),a)!=on.end()&&
+          std::find(on.begin(),on.end(),b)!=on.end())return f.foot;}return -1;};
+      for(const auto&t:initial_triangles_){int a=t[0],b=t[1],c=t[2];
+        std::vector<int> nine{midpoint_of(a,b),midpoint_of(b,c),midpoint_of(c,a),
+          foot_on(a,b,c),foot_on(b,c,a),foot_on(c,a,b)};
+        if(std::find(nine.begin(),nine.end(),-1)==nine.end())for(std::size_t i=3;i<nine.size();++i){
+          auto before=cyclic_facts_.size();add_cyclic(nine[0],nine[1],nine[2],nine[i],"nine-point circle theorem");changed|=cyclic_facts_.size()!=before;}
+      }
+
+      // Equal-radius components immediately supply cyclic point sets.
+      using SegmentKey=std::pair<int,int>;
+      std::map<SegmentKey,int> node;std::vector<int> parent;
+      auto get_node=[&](SegmentKey s){auto [it,inserted]=node.emplace(s,(int)parent.size());if(inserted)parent.push_back(it->second);return it->second;};
+      auto find_root=[&](int x){while(parent[x]!=x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
+      auto unite=[&](int a,int b){a=find_root(a);b=find_root(b);if(a!=b)parent[b]=a;};
+      for(const auto&f:equal_lengths_)unite(get_node(f.first),get_node(f.second));
+      for(int o=0;o<(int)points_.size();++o){std::map<int,std::vector<int>> groups;
+        for(int p=0;p<(int)points_.size();++p)if(p!=o){auto it=node.find(lenkey(o,p));if(it!=node.end())groups[find_root(it->second)].push_back(p);}
+        for(const auto&[_,on]:groups)if(on.size()>=4)for(std::size_t i=3;i<on.size();++i){auto before=cyclic_facts_.size();add_cyclic(on[0],on[1],on[2],on[i],"equal radii about "+points_[o].name);changed|=cyclic_facts_.size()!=before;}
+      }
+
       for(const auto&x:circle_cache_)if(x.points.size()>=4){std::set<int>w;if(proves_cyclic(x.points,&w)){auto before=cyclic_facts_.size();add_cyclic(x.points[0],x.points[1],x.points[2],x.points[3],"converse cyclic angle theorem");changed|=cyclic_facts_.size()!=before;}}
-      // Kite: equal adjacent pairs plus symmetry angle condition gives diagonal perpendicularity.
+      // Kite: two equidistant vertices give both perpendicular diagonals and the
+      // full reflection angle relation between the four corresponding sides.
       std::map<std::pair<int,int>,std::set<int>> wings;
       for(const auto& fact:equal_lengths_){auto x=fact.first,y=fact.second;int vertex=-1,b=-1,c=-1;
         if(x.first==y.first){vertex=x.first;b=x.second;c=y.second;}
@@ -422,11 +497,31 @@ class Engine {
         else if(x.second==y.second){vertex=x.second;b=x.first;c=y.first;}
         if(vertex>=0&&b!=c){if(b>c)std::swap(b,c);wings[{b,c}].insert(vertex);}}
       for(const auto& [base,vertices]:wings)for(auto ai=vertices.begin();ai!=vertices.end();++ai)for(auto di=std::next(ai);di!=vertices.end();++di){
-        int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2)){perpendicular_fact(ad,bc,"kite theorem "+points_[*ai].name+points_[base.first].name+points_[*di].name+points_[base.second].name);changed=true;}}
+        std::string why="kite theorem "+points_[*ai].name+points_[base.first].name+points_[*di].name+points_[base.second].name;
+        int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2)){perpendicular_fact(ad,bc,why);changed=true;}
+        auto symmetry=equation({{segment(*ai,base.first),1},{segment(*ai,base.second),1},{segment(*di,base.first),-1},{segment(*di,base.second),-1}});
+        if(!angles_.proves(symmetry,0,1)){angles_.add(symmetry,0,1,why+" [reflection angles]");changed=true;}
+      }
     }
   }
 
   void expand_points(){
+    auto room=[&]{return !max_points_||points_.size()<max_points_;};
+    if(auto_line_circle_){
+      std::size_t line_count=lines_.size(),circle_count=circles_.size();
+      for(std::size_t l=0;l<line_count&&room();++l){
+        if(lines_[l].origin=="segment")continue;
+        for(std::size_t c=0;c<circle_count&&room();++c){
+          auto on_line=line_points_[l],on_circle=circle_points_[c];
+          for(int k:on_line)if(room()&&std::find(on_circle.begin(),on_circle.end(),k)!=on_circle.end()){
+            const auto&ln=lines_[l];const auto&cc=circles_[c];long double dx=ln.b,dy=-ln.a;
+            if(std::fabs(-2*dot(points_[k].x-cc.center.x,points_[k].y-cc.center.y,dx,dy))<=EPS)continue;
+            std::string name="X("+lines_[l].name+","+circles_[c].name+","+points_[k].name+")";
+            if(!point_id_.count(name))execute({"intersection_lc_known",name,lines_[l].name,circles_[c].name,points_[k].name},0);
+          }
+        }
+      }
+    }
     if(!max_points_||points_.size()>=max_points_)return;
     while(points_.size()<max_points_){
       std::size_t before=points_.size(),n=before;
