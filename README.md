@@ -36,6 +36,7 @@ option show_easy 0             # print/suppress coincidences proved by the chase
 option circle_budget 25000000  # skip general scan above this many triples
 option trials 5                # independent random realizations in generate mode
 option seed 20260828            # reproducible pseudorandom seed
+option max_points 30            # automatically expand to at most 30 points
 
 triangle A B C
 quadrilateral A B C D
@@ -55,6 +56,30 @@ a proof; `mode prove` uses the symbolic fact system for proof goals.
 The advanced `point P x y` command remains available for diagnostics, but a
 fixed-coordinate point changes the problem and should not normally be used in a
 universal triangle configuration.
+
+### Point generation and listing
+
+Without `max_points`, the configuration contains exactly the initial and explicit
+construction commands. Setting `option max_points N` enables automatic expansion.
+The generator repeatedly tries circumcenters, orthocenters, and midpoints in a
+stable symbolic order until it reaches `N` points (or exhausts applicable
+constructions). The limit includes initial and explicitly constructed points and
+may be set from 1 through 5000.
+
+Every report lists the resulting points without trial-specific coordinates:
+
+```text
+points=6
+POINT A [random initial triangle]
+POINT B [random initial triangle]
+POINT C [random initial triangle]
+POINT O(A,B,C) [circumcenter]
+POINT H(A,B,C) [orthocenter]
+POINT M(A,B) [midpoint]
+```
+
+The symbolic names are identical across random trials. In generation mode, only
+points successfully constructed in every trial are retained in the final list.
 
 ### Point, line, and circle constructions
 

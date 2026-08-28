@@ -218,6 +218,7 @@ class Engine {
   std::vector<Candidate> circle_cache_;
   bool prove_mode_ = false, show_easy_ = false;
   std::size_t circle_budget_ = 25000000;
+  std::size_t max_points_=0;
   std::mt19937_64 rng_;
 
   long double random_real(long double lo, long double hi) {
@@ -238,6 +239,8 @@ class Engine {
   }
   void add_point(Point p) {
     if (point_id_.count(p.name)) throw std::runtime_error("duplicate point: " + p.name);
+    if(max_points_&&points_.size()>=max_points_)
+      throw std::runtime_error("configuration exceeds option max_points");
     for (const auto& q : points_) if (dist2(p, q) <= EPS * EPS)
       std::cerr << "warning: " << p.name << " numerically coincides with " << q.name << '\n';
     point_id_[p.name] = static_cast<int>(points_.size()); points_.push_back(std::move(p));
@@ -365,7 +368,7 @@ class Engine {
     auto need=[&](std::size_t n){if(t.size()!=n)throw std::runtime_error(t[0]+" expects "+std::to_string(n-1)+" arguments");};
     const auto& op=t[0];
     if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
-    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
     else if(op=="triangle") initial_triangle(t);
     else if(op=="quadrilateral") initial_quadrilateral(t,false);
     else if(op=="cyclic_quad") initial_quadrilateral(t,true);
@@ -416,6 +419,34 @@ class Engine {
     }
   }
 
+  void expand_points(){
+    if(!max_points_||points_.size()>=max_points_)return;
+    while(points_.size()<max_points_){
+      std::size_t before=points_.size(),n=before;
+      // Centers are tried before midpoints so small targets get a varied set of
+      // standard Olympiad constructions rather than only affine points.
+      for(std::size_t a=0;a<n&&points_.size()<max_points_;++a)
+        for(std::size_t b=a+1;b<n&&points_.size()<max_points_;++b)
+          for(std::size_t c=b+1;c<n&&points_.size()<max_points_;++c){
+            if(std::fabs(cross(points_[a],points_[b],points_[c]))<=
+               EPS*scale(points_[a],points_[b],points_[c]))continue;
+            for(const char* raw_op:{"circumcenter","orthocenter"}){
+              if(points_.size()>=max_points_)break;
+              std::string op=raw_op;
+              std::string name=(op=="circumcenter"?"O(":"H(")+points_[a].name+","+points_[b].name+","+points_[c].name+")";
+              if(point_id_.count(name))continue;
+              execute({op,name,points_[a].name,points_[b].name,points_[c].name},0);
+            }
+          }
+      for(std::size_t a=0;a<n&&points_.size()<max_points_;++a)
+        for(std::size_t b=a+1;b<n&&points_.size()<max_points_;++b){
+          std::string name="M("+points_[a].name+","+points_[b].name+")";
+          if(!point_id_.count(name))execute({"midpoint",name,points_[a].name,points_[b].name},0);
+        }
+      if(points_.size()==before)break;
+    }
+  }
+
   static long long quant(long double x, long double step=1e-8L) { return std::llround(x/step); }
   std::vector<Candidate> detect_lines() const {
     std::map<std::vector<int>,Candidate> uniq;int n=(int)points_.size();
@@ -458,7 +489,7 @@ class Engine {
  public:
   explicit Engine(std::uint64_t seed):rng_(seed){}
   void parse(std::istream& in) {std::string line;int no=0;while(std::getline(in,line)){++no;auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);std::istringstream ss(line);std::vector<std::string>t;std::string x;while(ss>>x)t.push_back(x);if(t.empty())continue;try{execute(t,no);}catch(const std::exception&e){throw std::runtime_error("line "+std::to_string(no)+": "+e.what());}}}
-  void report(){geometry_closure();std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";if(prove_mode_||!goals_.empty()){run_goals();return;}auto ls=detect_lines();std::size_t easy=0,hard=0;for(auto&x:ls){std::set<int>w;bool e=proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}for(auto&x:circle_cache_){std::set<int>w;bool e=proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";}
+  void report(){expand_points();geometry_closure();std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";for(const auto&p:points_)std::cout<<"POINT "<<p.name<<" ["<<p.origin<<"]\n";if(prove_mode_||!goals_.empty()){run_goals();return;}auto ls=detect_lines();std::size_t easy=0,hard=0;for(auto&x:ls){std::set<int>w;bool e=proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}for(auto&x:circle_cache_){std::set<int>w;bool e=proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";}
 };
 
 } // namespace geogen
@@ -501,6 +532,12 @@ std::set<std::string> findings(const std::string& report,bool show_easy) {
   return out;
 }
 
+std::vector<std::string> point_listing(const std::string& report){
+  std::vector<std::string> out;std::istringstream in(report);std::string line;
+  while(std::getline(in,line))if(line.rfind("POINT ",0)==0)out.push_back(line);
+  return out;
+}
+
 } // namespace
 
 int main(int argc,char**argv){try{
@@ -512,13 +549,20 @@ int main(int argc,char**argv){try{
   RunSettings settings=read_settings(input);
   if(settings.prove){std::cout<<execute_once(input,settings.seed);return 0;}
   std::set<std::string> common;
+  std::vector<std::string> common_points;
   for(int trial=0;trial<settings.trials;++trial){
     std::uint64_t trial_seed=settings.seed+0x9e3779b97f4a7c15ULL*static_cast<std::uint64_t>(trial+1);
-    auto current=findings(execute_once(input,trial_seed),settings.show_easy);
-    if(trial==0)common=std::move(current);
-    else {std::set<std::string> both;std::set_intersection(common.begin(),common.end(),current.begin(),current.end(),std::inserter(both,both.end()));common=std::move(both);}
+    std::string report=execute_once(input,trial_seed);
+    auto current=findings(report,settings.show_easy);auto current_points=point_listing(report);
+    if(trial==0){common=std::move(current);common_points=std::move(current_points);}
+    else {
+      std::set<std::string> both;std::set_intersection(common.begin(),common.end(),current.begin(),current.end(),std::inserter(both,both.end()));common=std::move(both);
+      std::set<std::string> present(current_points.begin(),current_points.end());
+      common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string& p){return !present.count(p);}),common_points.end());
+    }
   }
-  std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed<<"\n";
+  std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed<<"\npoints="<<common_points.size()<<"\n";
+  for(const auto& point:common_points)std::cout<<point<<'\n';
   for(const auto& line:common)std::cout<<line<<'\n';
   std::cout<<"summary stable_coincidences="<<common.size()<<"\n";
   return 0;

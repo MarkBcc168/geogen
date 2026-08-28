@@ -32,4 +32,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/no_angle_halving.geogen)
   set_tests_properties(no_illegal_angle_halving PROPERTIES
     PASS_REGULAR_EXPRESSION "UNPROVED parallel")
+  add_test(NAME adjustable_automatic_points
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_points.geogen)
+  set_tests_properties(adjustable_automatic_points PROPERTIES
+    PASS_REGULAR_EXPRESSION "points=10")
 endif()
