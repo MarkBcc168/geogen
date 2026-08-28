@@ -6,8 +6,9 @@ finds collinear and concyclic point sets, runs a fixed-point angle chase, and
 prints only coincidences which that chase does not already make routine.
 
 This is an experimental problem-discovery tool, not a replacement for a formal
-proof assistant. Coordinates are used to *discover* candidate statements;
-symbolic facts are used to prove and filter them.
+proof assistant. Initial figures are symbolic: the program samples several
+generic realizations to *discover* candidate statements, while symbolic facts are
+used to prove and filter them.
 
 ## Build and run
 
@@ -23,9 +24,8 @@ The executable reads standard input when no filename is supplied.
 ## Input language
 
 One command appears on each line. Tokens are separated by whitespace and `#`
-starts a comment. Objects must be declared before use. Initial coordinates should
-be generic (avoid an isosceles or right triangle unless that is intentional),
-because accidental coordinate symmetry creates accidental conjectures.
+starts a comment. Objects must be declared before use. No coordinates are entered
+for the initial triangle or quadrilateral.
 
 ### Modes and initial configurations
 
@@ -34,15 +34,27 @@ mode generate
 mode prove
 option show_easy 0             # print/suppress coincidences proved by the chase
 option circle_budget 25000000  # skip general scan above this many triples
+option trials 5                # independent random realizations in generate mode
+option seed 20260828            # reproducible pseudorandom seed
 
-triangle A 0 0 B 6 0 C 1 4
-quadrilateral A 0 0 B 5 0 C 6 3 D 1 4
-cyclic_quad A 1 0 B 0 1 C -1 0 D 0 -1
-point P 2.5 1.25
+triangle A B C
+quadrilateral A B C D
+cyclic_quad A B C D
 ```
 
-`cyclic_quad` validates its coordinates and immediately adds the full directed
-angle relation for a cyclic quadrilateral.
+For every trial, `triangle` and `quadrilateral` generate a fresh nondegenerate
+generic realization. `cyclic_quad` generates four random points on a circle and
+immediately adds the full directed-angle relation for a cyclic quadrilateral.
+The seed is printed in the report so a run can be reproduced.
+
+In generation mode, a coincidence is emitted only if the same named point set is
+found in every trial. This makes accidental isosceles, right-angle, parallel, or
+concyclic behavior overwhelmingly unlikely. It remains randomized evidence, not
+a proof; `mode prove` uses the symbolic fact system for proof goals.
+
+The advanced `point P x y` command remains available for diagnostics, but a
+fixed-coordinate point changes the problem and should not normally be used in a
+universal triangle configuration.
 
 ### Point, line, and circle constructions
 
@@ -102,10 +114,11 @@ successful angular proof lists the construction/theorem facts used. See
 - Declared circles are scanned in `O(n)`. General concyclicity uses a fixed-anchor
   circumcircle hash: `O(n^3)` time, `O(n^2)` peak memory, and no `O(n^4)` scan.
   `circle_budget` lets very large runs retain only declared-circle detection.
-- Directed line angles live modulo 180 degrees. Sparse Gaussian bases over two
-  large primes track equations such as
+- Directed line angles live modulo 180 degrees. An exact sparse integer-lattice
+  basis tracks equations such as
   `angle(AB)+angle(CD)=angle(AD)+angle(BC)` without ever dividing a geometric
-  relation by two. Two moduli make hash-field false proofs negligibly unlikely.
+  relation. The 90-degree constant has order two, so two perpendicular relations
+  correctly add to 180 degrees, while `2*x=0` never incorrectly implies `x=0`.
 - The fixed-point chase adds cyclic converse facts and indexed kite consequences;
   orthocenter, circumcenter, incenter, midpoint, incidence, parallel,
   perpendicular, reflection, and angle-bisector constructions seed their standard
@@ -122,7 +135,8 @@ closure interface if later benchmarks justify targeted versions.
 
 ```text
 mode generate
-triangle A 0 0 B 6 0 C 1 4
+option trials 7
+triangle A B C
 midpoint M B C
 perp_bisector p A M
 line AB A B
@@ -136,7 +150,7 @@ This is available as
 
 ## Numerical limits
 
-Discovery uses `long double` with scale-aware validation after quantized hashing.
-Do not use coordinates with wildly different magnitudes. A reported
-`NONTRIVIAL` statement is a conjecture: verify it with several generic initial
-coordinate choices, then prove it using a stronger prover or by hand.
+Discovery uses internally sampled `long double` coordinates with scale-aware
+validation after quantized hashing. A reported `NONTRIVIAL` statement has survived
+all configured random trials, but is still a conjecture: prove it using the
+independent prover, a stronger prover, or by hand.

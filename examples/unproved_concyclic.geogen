@@ -1,5 +1,14 @@
-# D is numerically on the circumcircle of ABC, but no symbolic circle fact is given.
-# The result is therefore emitted as a conjecture rather than proving itself.
+# The side midpoints and altitude feet lie on the nine-point circle. The current
+# lightweight fact base discovers this numerically but does not assume it.
 mode generate
-triangle A 1 0 B 0 1 C -1 0
-point D 0 -1
+option trials 5
+triangle A B C
+line AB A B
+line BC B C
+line CA C A
+midpoint M B C
+midpoint N C A
+midpoint P A B
+foot D A BC
+foot E B CA
+foot F C AB
