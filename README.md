@@ -195,9 +195,10 @@ successful angular proof lists the construction/theorem facts used. See
   perpendicular-bisector locus. Orthocenters are likewise registered on the
   altitude determined by a vertex and any known carrier of the opposite side.
   Consequently, collinear families such as `O(A,B,*)` and `H(A,P,Q)` for
-  collinear `P,Q` are treated as construction-level facts. A parity union-find
-  matches known parallel and perpendicular carriers without repeatedly querying
-  the full angle lattice.
+  collinear `P,Q` are treated as construction-level facts. The chord midpoint
+  and nested centers such as `H(A,B,O(A,B,C))` are attached to that same locus.
+  A parity union-find matches known parallel and perpendicular carriers without
+  repeatedly querying the full angle lattice.
 - A numerical coincidence which follows from this fact base is labeled `EASY`
   and suppressed by default. Remaining statements are printed as `NONTRIVIAL`.
 
