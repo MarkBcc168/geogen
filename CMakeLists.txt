@@ -69,4 +69,9 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
   set_tests_properties(perpendicular_bisector_circumcenter_filter PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED concyclic.B,F,M,O1")
+  add_test(NAME center_locus_collinearity_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/center_loci.geogen)
+  set_tests_properties(center_locus_collinearity_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear"
+    FAIL_REGULAR_EXPRESSION "UNPROVED collinear")
 endif()
