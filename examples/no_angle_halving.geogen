@@ -1,5 +1,6 @@
 # Knowing that BD bisects angle ABC does not imply BD is parallel to BA.
 mode prove
+option max_points 50
 triangle A B C
 line AC A C
 angle_bisector bisector A B C

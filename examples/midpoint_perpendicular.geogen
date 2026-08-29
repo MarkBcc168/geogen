@@ -2,6 +2,7 @@
 mode generate
 option show_easy 0
 option trials 7
+option max_points 50
 triangle A B C
 midpoint M B C
 perp_bisector p A M

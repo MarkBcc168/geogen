@@ -38,6 +38,7 @@ option trials 5                # independent random realizations in generate mod
 option seed 20260828            # reproducible pseudorandom seed
 option max_points 30            # automatically expand to at most 30 points
 option line_circle_intersections 1 # generate quadratic-free second intersections
+option angle_coefficient_limit 10000 # maximum accepted proof coefficient
 
 triangle A B C
 quadrilateral A B C D
@@ -164,11 +165,18 @@ successful angular proof lists the construction/theorem facts used. See
 - Declared circles are scanned in `O(n)`. General concyclicity uses a fixed-anchor
   circumcircle hash: `O(n^3)` time, `O(n^2)` peak memory, and no `O(n^4)` scan.
   `circle_budget` lets very large runs retain only declared-circle detection.
-- Directed line angles live modulo 180 degrees. An exact sparse integer-lattice
-  basis tracks equations such as
+- Directed line angles live modulo 180 degrees. For ordinary fact bases, an exact
+  sparse integer-lattice basis tracks equations such as
   `angle(AB)+angle(CD)=angle(AD)+angle(BC)` without ever dividing a geometric
   relation. The 90-degree constant has order two, so two perpendicular relations
   correctly add to 180 degrees, while `2*x=0` never incorrectly implies `x=0`.
+- Large generated configurations automatically switch to sparse elimination over
+  two large prime fields before exact Hermite coefficients can swell. The prover
+  tracks the linear combination of original theorem facts, converts every field
+  coefficient to its balanced signed representative, and accepts the proof only
+  when both primes reconstruct the same coefficients and every absolute value is
+  at most `angle_coefficient_limit` (10,000 by default). Modular division such as
+  `1/2` reconstructs near half the prime and is therefore rejected.
 - The fixed-point chase adds cyclic converse facts and indexed kite consequences;
   orthocenter, circumcenter, incenter, midpoint, incidence, parallel,
   perpendicular, reflection, and angle-bisector constructions seed their standard
@@ -177,6 +185,12 @@ successful angular proof lists the construction/theorem facts used. See
   hypotenuse-midpoint theorem. Perpendicular-bisector incidences add equal
   distances, kites add their full reflection-angle relation, and the standard six
   side-midpoint/altitude-foot configuration invokes the nine-point-circle rule.
+- Every known equality `XA=XB` adds the undivided isosceles relation
+  `angle(XA)+angle(XB)=2*angle(AB)`. This retains integer coefficients and lets
+  circumcenter-radius facts participate in the full angle chase.
+- A constructed circumcenter also adds all cyclic forms of
+  `angle(ACB)+angle(OAB)=90 degrees`. This resolves the factor-of-two ambiguity
+  that equal-radius isosceles relations alone cannot remove modulo 180 degrees.
 - A numerical coincidence which follows from this fact base is labeled `EASY`
   and suppressed by default. Remaining statements are printed as `NONTRIVIAL`.
 

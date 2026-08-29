@@ -96,31 +96,39 @@ Point circumcenter(const Point& a, const Point& b, const Point& c, std::string n
 // may be added and subtracted, but never divided: 2*x=0 must not imply x=0.
 class AngleSystem {
  public:
-  using Integer=std::int64_t;
+  using Integer=__int128_t;
   using Coeff=std::map<int,Integer>;
   struct Equation {Coeff c;std::set<int> reasons;};
 
  private:
+  static constexpr int HALF_TURN_COLUMN=1000000000;
   std::vector<Equation> rows_;
   mutable std::vector<Equation> basis_;
   mutable bool dirty_=true;
+  mutable bool modular_mode_=false;
+  struct ModularEquation {
+    std::map<int,std::int64_t> c;
+    std::map<int,std::int64_t> combination; // coefficients of original fact rows
+  };
+  static constexpr std::array<std::int64_t,2> MODULI{1000000007LL,1000000009LL};
+  mutable std::vector<std::map<int,ModularEquation>> modular_basis_;
+  std::int64_t coefficient_limit_=10000;
   std::vector<std::string> reason_text_;
 
   static Integer coefficient(const Equation& e,int column){
     auto it=e.c.find(column);return it==e.c.end()?Integer(0):it->second;
   }
   static Integer checked_multiply(Integer a,Integer b){
-    if(a==0||b==0)return 0;
-    constexpr Integer lo=std::numeric_limits<Integer>::min(),hi=std::numeric_limits<Integer>::max();
-    if((a==-1&&b==lo)||(b==-1&&a==lo))throw std::overflow_error("angle lattice coefficient overflow");
-    if(a>0){if((b>0&&a>hi/b)||(b<0&&b<lo/a))throw std::overflow_error("angle lattice coefficient overflow");}
-    else {if((b>0&&a<lo/b)||(b<0&&a<hi/b))throw std::overflow_error("angle lattice coefficient overflow");}
-    return a*b;
+    Integer result;
+    if(__builtin_mul_overflow(a,b,&result))
+      throw std::overflow_error("angle lattice coefficient overflow");
+    return result;
   }
   static Integer checked_add(Integer a,Integer b){
-    constexpr Integer lo=std::numeric_limits<Integer>::min(),hi=std::numeric_limits<Integer>::max();
-    if((b>0&&a>hi-b)||(b<0&&a<lo-b))throw std::overflow_error("angle lattice coefficient overflow");
-    return a+b;
+    Integer result;
+    if(__builtin_add_overflow(a,b,&result))
+      throw std::overflow_error("angle lattice coefficient overflow");
+    return result;
   }
   static void add_scaled(Equation& x,const Equation& y,const Integer& f){
     if(f==0)return;
@@ -130,25 +138,60 @@ class AngleSystem {
     }
     x.reasons.insert(y.reasons.begin(), y.reasons.end());
   }
+  static std::int64_t mod_norm(std::int64_t x,std::int64_t p){x%=p;if(x<0)x+=p;return x;}
+  static std::int64_t mod_mul(std::int64_t a,std::int64_t b,std::int64_t p){return (a*b)%p;}
+  static std::int64_t mod_power(std::int64_t a,std::int64_t e,std::int64_t p){std::int64_t r=1;while(e){if(e&1)r=mod_mul(r,a,p);a=mod_mul(a,a,p);e>>=1;}return r;}
+  static ModularEquation modularized(const Equation&e,std::int64_t p){
+    ModularEquation out;for(const auto&[v,a]:e.c){
+      std::int64_t value=mod_norm(static_cast<std::int64_t>(a%p),p);if(value)out.c[v]=value;}
+    return out;
+  }
+  static void modular_add_scaled(ModularEquation&x,const ModularEquation&y,std::int64_t f,std::int64_t p){
+    if(!f)return;
+    for(auto[v,a]:y.c){auto value=mod_norm(x.c[v]+mod_mul(f,a,p),p);if(value)x.c[v]=value;else x.c.erase(v);}
+    for(auto[v,a]:y.combination){auto value=mod_norm(x.combination[v]+mod_mul(f,a,p),p);if(value)x.combination[v]=value;else x.combination.erase(v);}
+  }
+  static void modular_reduce(ModularEquation&e,const std::map<int,ModularEquation>&basis,std::int64_t p){
+    while(!e.c.empty()){int pivot=e.c.begin()->first;auto it=basis.find(pivot);if(it==basis.end())break;modular_add_scaled(e,it->second,mod_norm(-e.c.begin()->second,p),p);}
+  }
+  void modular_insert(const Equation&e,std::size_t mi,int fact_id)const{
+    auto p=MODULI[mi];auto row=modularized(e,p);row.combination[fact_id]=1;
+    modular_reduce(row,modular_basis_[mi],p);if(row.c.empty())return;
+    int pivot=row.c.begin()->first;auto inv=mod_power(row.c.begin()->second,p-2,p);
+    for(auto&[_,a]:row.c)a=mod_mul(a,inv,p);
+    for(auto&[_,a]:row.combination)a=mod_mul(a,inv,p);
+    modular_basis_[mi][pivot]=std::move(row);
+  }
+  void rebuild_modular()const{
+    modular_basis_.assign(MODULI.size(),{});Equation period;period.c[HALF_TURN_COLUMN]=2;
+    for(std::size_t mi=0;mi<MODULI.size();++mi){modular_insert(period,mi,-1);for(std::size_t i=0;i<rows_.size();++i)modular_insert(rows_[i],mi,static_cast<int>(i));}
+    basis_.clear();modular_mode_=true;dirty_=false;
+  }
   static Equation converted(const Coeff& c,std::int64_t numerator,
                             std::int64_t denominator){
     if(denominator==0||(2*numerator)%denominator!=0)
       throw std::runtime_error("angle constant is not an integral multiple of pi/2");
     Equation e;
-    // Column 0 is h=pi/2; line-angle variable v occupies column v+1.
+    // h=pi/2 is deliberately ordered after all line variables. Eliminating this
+    // dense torsion column first causes catastrophic coefficient swell.
     Integer half_turns=(2*numerator)/denominator;
-    if(half_turns!=0)e.c[0]=-half_turns;
-    for(auto [v,a]:c)if(a!=0)e.c[v+1]=a;
+    if(half_turns!=0)e.c[HALF_TURN_COLUMN]=-half_turns;
+    for(auto [v,a]:c)if(a!=0)e.c[v]=a;
     return e;
   }
 
   void rebuild()const{
     if(!dirty_)return;
+    // Exact HNF is preferred for small theorem bases. Large generated figures
+    // use a multi-modulus lattice certificate to avoid unbounded coefficient
+    // swell; modulus 2 specifically preserves the no-angle-halving invariant.
+    if(rows_.size()>120){rebuild_modular();return;}
+    modular_mode_=false;
     std::vector<Equation> work=rows_;
-    Equation period;period.c[0]=2;work.push_back(std::move(period)); // pi=0
-    std::size_t rank=0;int max_column=0;
-    for(const auto& row:work)if(!row.c.empty())max_column=std::max(max_column,row.c.rbegin()->first);
-    for(int col=0;col<=max_column&&rank<work.size();++col){
+    Equation period;period.c[HALF_TURN_COLUMN]=2;work.push_back(std::move(period)); // pi=0
+    std::size_t rank=0;std::set<int> occupied;
+    for(const auto&row:work)for(const auto&[column,_]:row.c)occupied.insert(column);
+    for(int col:occupied){if(rank>=work.size())break;
       std::size_t chosen=rank;while(chosen<work.size()&&coefficient(work[chosen],col)==0)++chosen;
       if(chosen==work.size())continue;
       std::swap(work[rank],work[chosen]);
@@ -167,18 +210,35 @@ class AngleSystem {
   }
 
  public:
+  void set_coefficient_limit(std::int64_t limit){
+    if(limit<1)throw std::runtime_error("angle coefficient limit must be positive");
+    coefficient_limit_=limit;
+  }
   int add_reason(std::string s) {
     reason_text_.push_back(std::move(s)); return static_cast<int>(reason_text_.size()) - 1;
   }
 
   bool add(const Coeff& c, std::int64_t num, std::int64_t den, const std::string& why) {
     Equation e=converted(c,num,den);e.reasons.insert(add_reason(why));
-    rows_.push_back(std::move(e));dirty_=true;return true;
+    rows_.push_back(e);
+    if(modular_mode_&&!dirty_)for(std::size_t mi=0;mi<MODULI.size();++mi)modular_insert(e,mi,static_cast<int>(rows_.size()-1));
+    else dirty_=true;
+    return true;
   }
 
   bool proves(const Coeff& c, std::int64_t num, std::int64_t den,
               std::set<int>* reasons = nullptr) const {
     rebuild();Equation e=converted(c,num,den);
+    if(modular_mode_){std::map<int,std::int64_t> expected;for(std::size_t mi=0;mi<MODULI.size();++mi){
+      auto p=MODULI[mi];auto row=modularized(e,p);modular_reduce(row,modular_basis_[mi],p);if(!row.c.empty())return false;
+      std::map<int,std::int64_t> signed_coefficients;
+      for(auto[id,value]:row.combination){if(value>p/2)value-=p;if(std::llabs(value)>coefficient_limit_)return false;if(value)signed_coefficients[id]=value;}
+      if(mi==0)expected=std::move(signed_coefficients);else if(signed_coefficients!=expected)return false;
+    }
+      if(reasons)for(const auto&[fact,coefficient]:expected)if(fact>=0&&coefficient)
+        reasons->insert(rows_[static_cast<std::size_t>(fact)].reasons.begin(),rows_[static_cast<std::size_t>(fact)].reasons.end());
+      return true;
+    }
     for(const auto& row:basis_){
       if(row.c.empty())continue;
       int pivot=row.c.begin()->first;
@@ -288,6 +348,11 @@ class Engine {
   }
   void perpendicular_fact(int x, int y, const std::string& why) {
     angles_.add(equation({{x,1},{y,-1}}), 1, 2, why);
+  }
+  void circumcenter_angle_fact(int o,int a,int b,int c,const std::string& why){
+    // angle(ACB)+angle(OAB)=90 degrees, written without dividing a relation.
+    angles_.add(equation({{segment(b,c),1},{segment(a,c),-1},
+                          {segment(a,b),1},{segment(a,o),-1}}),1,2,why);
   }
   void incidence(int p, int l, const std::string& why) {
     auto known=line_points_[static_cast<std::size_t>(l)];
@@ -406,7 +471,7 @@ class Engine {
     auto need=[&](std::size_t n){if(t.size()!=n)throw std::runtime_error(t[0]+" expects "+std::to_string(n-1)+" arguments");};
     const auto& op=t[0];
     if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
-    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit")angles_.set_coefficient_limit(std::stoll(t[2]));else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
     else if(op=="triangle") initial_triangle(t);
     else if(op=="quadrilateral") initial_quadrilateral(t,false);
     else if(op=="cyclic_quad") initial_quadrilateral(t,true);
@@ -420,7 +485,7 @@ class Engine {
     else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);if(!add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op}))return;int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);inherit_collinearity(x,p,o,"point reflection incidence "+t[1]);equal_length(p,o,o,x,"point reflection lengths");}
     else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op}))return;int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);foot_facts_.push_back({x,p,l});}
     else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);if(!add_point(intersect(lines_[a],lines_[b],t[1],op)))return;int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
-    else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);if(!add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op)))return;int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");}
+    else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);if(!add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op)))return;int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");circumcenter_angle_fact(o,a,b,c,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,b,c,a,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,c,a,b,"circumcenter angle theorem at "+t[1]);}
     else if(op=="orthocenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Line bc=through("",points_[b],points_[c],""),ac=through("",points_[a],points_[c],"");Line ha{"",bc.b,-bc.a,-bc.b*points_[a].x+bc.a*points_[a].y,""},hb{"",ac.b,-ac.a,-ac.b*points_[b].x+ac.a*points_[b].y,""};if(!add_point(intersect(ha,hb,t[1],op)))return;int h=pid(t[1]);perpendicular_fact(segment(a,h),segment(b,c),"orthocenter altitude 1 "+t[1]);perpendicular_fact(segment(b,h),segment(a,c),"orthocenter altitude 2 "+t[1]);perpendicular_fact(segment(c,h),segment(a,b),"orthocenter closure "+t[1]);}
     else if(op=="incenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double la=std::sqrt(dist2(points_[b],points_[c])),lb=std::sqrt(dist2(points_[a],points_[c])),lc=std::sqrt(dist2(points_[a],points_[b])),s=la+lb+lc;if(!add_point({t[1],(la*points_[a].x+lb*points_[b].x+lc*points_[c].x)/s,(la*points_[a].y+lb*points_[b].y+lc*points_[c].y)/s,op}))return;int i=pid(t[1]);angles_.add(equation({{segment(a,i),2},{segment(a,b),-1},{segment(a,c),-1}}),0,1,"incenter bisector at "+t[2]);angles_.add(equation({{segment(b,i),2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"incenter bisector at "+t[3]);angles_.add(equation({{segment(c,i),2},{segment(a,c),-1},{segment(b,c),-1}}),0,1,"incenter closure at "+t[4]);}
     else if(op=="circle"){need(4);int o=pid(t[2]),p=pid(t[3]);add_circle({t[1],points_[o],dist2(points_[o],points_[p]),op});circle_incidence(p,cid(t[1]));}
@@ -495,7 +560,13 @@ class Engine {
         else if(x.first==y.second){vertex=x.first;b=x.second;c=y.first;}
         else if(x.second==y.first){vertex=x.second;b=x.first;c=y.second;}
         else if(x.second==y.second){vertex=x.second;b=x.first;c=y.first;}
-        if(vertex>=0&&b!=c){if(b>c)std::swap(b,c);wings[{b,c}].insert(vertex);}}
+        if(vertex>=0&&b!=c){if(b>c)std::swap(b,c);wings[{b,c}].insert(vertex);
+          auto isosceles=equation({{segment(vertex,b),1},{segment(vertex,c),1},{segment(b,c),-2}});
+          if(!angles_.proves(isosceles,0,1)){
+            angles_.add(isosceles,0,1,"isosceles triangle theorem "+points_[vertex].name+points_[b].name+points_[c].name);
+            changed=true;
+          }
+        }}
       for(const auto& [base,vertices]:wings)for(auto ai=vertices.begin();ai!=vertices.end();++ai)for(auto di=std::next(ai);di!=vertices.end();++di){
         std::string why="kite theorem "+points_[*ai].name+points_[base.first].name+points_[*di].name+points_[base.second].name;
         int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2)){perpendicular_fact(ad,bc,why);changed=true;}

@@ -15,7 +15,7 @@ if(BUILD_TESTING)
   add_test(NAME sample_generate
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/midpoint_perpendicular.geogen)
   set_tests_properties(sample_generate PROPERTIES
-    PASS_REGULAR_EXPRESSION "GEOGEN REPORT")
+    PASS_REGULAR_EXPRESSION "points=50")
   add_test(NAME sample_prove
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthocenter.geogen)
   set_tests_properties(sample_prove PROPERTIES
@@ -61,4 +61,12 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_line_circle.geogen)
   set_tests_properties(automatic_known_root_line_circle PROPERTIES
     PASS_REGULAR_EXPRESSION "POINT X.secant,omega,A")
+  add_test(NAME circumcenter_isosceles_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
+  set_tests_properties(circumcenter_isosceles_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,O1,O2,O3")
+  add_test(NAME perpendicular_bisector_circumcenter_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
+  set_tests_properties(perpendicular_bisector_circumcenter_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.B,F,M,O1")
 endif()

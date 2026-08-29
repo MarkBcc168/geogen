@@ -1,4 +1,5 @@
 mode prove
+option max_points 50
 triangle A B C
 orthocenter H A B C
 prove_perpendicular C H A B
