@@ -236,6 +236,9 @@ successful angular proof lists the construction/theorem facts used. See
   hypotenuse-midpoint theorem. Perpendicular-bisector incidences add equal
   distances, kites add their full reflection-angle relation, and the standard six
   side-midpoint/altitude-foot configuration invokes the nine-point-circle rule.
+- A point reflection `C = reflect(A,B)` registers `B` as the midpoint of `AC`.
+  Whenever one point is the midpoint of both `AB` and `CD`, the parallelogram
+  closure adds `AC || BD` and `AD || BC`.
 - Every known equality `XA=XB` adds the undivided isosceles relation
   `angle(XA)+angle(XB)=2*angle(AB)`. This retains integer coefficients and lets
   circumcenter-radius facts participate in the full angle chase.
