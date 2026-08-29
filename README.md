@@ -265,6 +265,9 @@ successful angular proof lists the construction/theorem facts used. See
 - A line reflection records its full undivided direction identity at every
   certified point of the mirror. In particular, reflection across an angle
   bisector maps one sideline to the other without requiring angle division.
+  Reflection symmetry is also propagated to points attached to the mirror only
+  during later theorem closure, such as a circumcenter on a perpendicular
+  bisector.
 - Definition-certified line carriers sharing two points, or sharing one point
   with a known parallel direction, are merged. Circles sharing three certified
   points are merged likewise. Thus every line-line, known-root line-circle, and

@@ -1,0 +1,6 @@
+mode prove
+triangle A B C
+circumcenter O A B C
+perp_bisector axis B C
+reflection_line D A axis
+prove_concyclic A B C D

@@ -786,6 +786,14 @@ class Engine {
     normalize_definition_incidences();
     register_incenter_loci();
     normalize_definition_incidences();
+    // A mirror may acquire additional certified points after its reflection was
+    // constructed (notably a circumcenter on a perpendicular-bisector mirror).
+    // Propagate reflection symmetry to those late incidences as well.
+    for(const auto&f:line_reflection_facts_)for(int axis_point:line_points_[static_cast<std::size_t>(f.line)])
+      if(axis_point!=f.source&&axis_point!=f.image){
+        equal_length(axis_point,f.source,axis_point,f.image,"late reflection-axis equal distances");
+        angles_.add(equation({{segment(axis_point,f.source),1},{segment(axis_point,f.image),1},{f.line,-2}}),0,1,"late line-reflection angle symmetry");
+      }
     // The unique intersection of a segment carrier and its perpendicular
     // bisector is the segment midpoint. This includes the familiar fact that
     // the perpendicular foot from a circumcenter to a chord bisects the chord.

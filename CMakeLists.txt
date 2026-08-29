@@ -150,6 +150,10 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/stress_circle_circle_axis.geogen)
   set_tests_properties(circle_circle_center_axis PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED perpendicular.A,X,B,C")
+  add_test(NAME delayed_reflection_axis_incidence
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/stress_reflected_circumcircle.geogen)
+  set_tests_properties(delayed_reflection_axis_incidence PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,D")
   add_test(NAME cyclic_radius_completion
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/cyclic_radius_completion.geogen)
   set_tests_properties(cyclic_radius_completion PROPERTIES
