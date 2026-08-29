@@ -314,6 +314,7 @@ class Engine {
   std::vector<int> point_depth_,line_depth_,circle_depth_;
   std::vector<std::vector<int>> line_points_;
   std::vector<std::vector<int>> circle_points_;
+  std::vector<int> circle_center_ids_;
   std::vector<int> direction_parent_,direction_rank_,direction_parity_;
   std::unordered_map<std::string, int> point_id_, line_id_, circle_id_;
   std::map<std::pair<int,int>, int> segment_line_;
@@ -416,11 +417,12 @@ class Engine {
     line_points_.emplace_back();direction_parent_.push_back(id);
     direction_rank_.push_back(0);direction_parity_.push_back(0);return id;
   }
-  void add_circle(Circle c) {
+  void add_circle(Circle c,int center_id=-1) {
     if (circle_id_.count(c.name)) throw std::runtime_error("duplicate circle: " + c.name);
     circle_id_[c.name] = static_cast<int>(circles_.size()); circles_.push_back(std::move(c));
     circle_depth_.push_back(0);
     circle_points_.emplace_back();
+    circle_center_ids_.push_back(center_id);
   }
   int segment(int a, int b) {
     if (a == b) throw std::runtime_error("zero segment has no angle");
@@ -562,6 +564,22 @@ class Engine {
       }
     }
   }
+  void register_incenter_loci(){
+    // Internal angle bisectors depend on rays, not just their unoriented carrier
+    // lines. Build a small directed-ray union-find from certified midpoint
+    // betweenness: if M is the midpoint of AB, rays AM and AB coincide (and so
+    // do BM and BA). This distinguishes the internal and external bisectors
+    // without using numerical side tests or illegally halving an angle relation.
+    std::map<std::pair<int,int>,int> ray_node;std::vector<int> parent;
+    auto get=[&](int a,int b){auto [it,inserted]=ray_node.emplace(std::pair{a,b},static_cast<int>(parent.size()));if(inserted)parent.push_back(it->second);return it->second;};
+    auto find=[&](int x){while(parent[static_cast<std::size_t>(x)]!=x){parent[static_cast<std::size_t>(x)]=parent[static_cast<std::size_t>(parent[static_cast<std::size_t>(x)])];x=parent[static_cast<std::size_t>(x)];}return x;};
+    auto unite=[&](int a,int b){a=find(a);b=find(b);if(a!=b)parent[static_cast<std::size_t>(b)]=a;};
+    for(const auto&f:midpoint_facts_){unite(get(f.a,f.midpoint),get(f.a,f.b));unite(get(f.b,f.midpoint),get(f.b,f.a));}
+    std::map<std::tuple<int,int,int>,std::vector<int>> loci;
+    auto add_locus=[&](int vertex,int side1,int side2,int center){int r1=find(get(vertex,side1)),r2=find(get(vertex,side2));if(r2<r1)std::swap(r1,r2);loci[{vertex,r1,r2}].push_back(center);};
+    for(const auto&f:incenter_facts_){add_locus(f.a,f.b,f.c,f.center);add_locus(f.b,f.a,f.c,f.center);add_locus(f.c,f.a,f.b,f.center);}
+    for(const auto&[key,centers]:loci)if(centers.size()>1){int vertex=std::get<0>(key),carrier=segment(vertex,centers[0]);for(std::size_t i=1;i<centers.size();++i)incidence(centers[i],carrier,"incenters on the same certified internal angle-bisector ray locus");}
+  }
   void circle_incidence(int p, int c) {
     auto& on = circle_points_[static_cast<std::size_t>(c)];
     if (std::find(on.begin(), on.end(), p) == on.end()) on.push_back(p);
@@ -581,6 +599,16 @@ class Engine {
       if(v==y)return true;
       if(seen.insert(v).second)todo.push_back(v);}}
     return false;
+  }
+  bool prove_equal_distance(int a,int b,int c,int d){
+    if(length_equal(a,b,c,d))return true;
+    int vertex=-1,x=-1,y=-1;
+    if(a==c){vertex=a;x=b;y=d;}else if(a==d){vertex=a;x=b;y=c;}
+    else if(b==c){vertex=b;x=a;y=d;}else if(b==d){vertex=b;x=a;y=c;}
+    if(vertex<0||x==y)return false;
+    auto relation=equation({{segment(vertex,x),1},{segment(vertex,y),1},{segment(x,y),-2}});
+    if(!angles_.proves(relation,0,1))return false;
+    equal_length(vertex,x,vertex,y,"converse isosceles triangle theorem");return true;
   }
   void register_midpoint_fact(int midpoint,int a,int b,const std::string&why){
     for(const auto&f:midpoint_facts_)if(f.midpoint==midpoint&&lenkey(f.a,f.b)==lenkey(a,b))return;
@@ -694,19 +722,66 @@ class Engine {
     else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);if(!add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op)))return;int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");circumcenter_angle_fact(o,a,b,c,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,b,c,a,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,c,a,b,"circumcenter angle theorem at "+t[1]);circumcenter_facts_.push_back({o,a,b,c});}
     else if(op=="orthocenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Line bc=through("",points_[b],points_[c],""),ac=through("",points_[a],points_[c],"");Line ha{"",bc.b,-bc.a,-bc.b*points_[a].x+bc.a*points_[a].y,""},hb{"",ac.b,-ac.a,-ac.b*points_[b].x+ac.a*points_[b].y,""};if(!add_point(intersect(ha,hb,t[1],op)))return;int h=pid(t[1]);perpendicular_fact(segment(a,h),segment(b,c),"orthocenter altitude 1 "+t[1]);perpendicular_fact(segment(b,h),segment(a,c),"orthocenter altitude 2 "+t[1]);perpendicular_fact(segment(c,h),segment(a,b),"orthocenter closure "+t[1]);orthocenter_facts_.push_back({h,a,b,c});}
     else if(op=="incenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double la=std::sqrt(dist2(points_[b],points_[c])),lb=std::sqrt(dist2(points_[a],points_[c])),lc=std::sqrt(dist2(points_[a],points_[b])),s=la+lb+lc;if(!add_point({t[1],(la*points_[a].x+lb*points_[b].x+lc*points_[c].x)/s,(la*points_[a].y+lb*points_[b].y+lc*points_[c].y)/s,op}))return;int i=pid(t[1]);angles_.add(equation({{segment(a,i),2},{segment(a,b),-1},{segment(a,c),-1}}),0,1,"incenter bisector at "+t[2]);angles_.add(equation({{segment(b,i),2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"incenter bisector at "+t[3]);angles_.add(equation({{segment(c,i),2},{segment(a,c),-1},{segment(b,c),-1}}),0,1,"incenter closure at "+t[4]);incenter_facts_.push_back({i,a,b,c});}
-    else if(op=="circle"){need(4);int o=pid(t[2]),p=pid(t[3]);add_circle({t[1],points_[o],dist2(points_[o],points_[p]),op});circle_incidence(p,cid(t[1]));}
+    else if(op=="circle"){need(4);int o=pid(t[2]),p=pid(t[3]);add_circle({t[1],points_[o],dist2(points_[o],points_[p]),op},o);circle_incidence(p,cid(t[1]));}
     else if(op=="circumcircle"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Point o=circumcenter(points_[a],points_[b],points_[c],"@"+t[1],op);add_circle({t[1],o,dist2(o,points_[a]),op});int z=cid(t[1]);circle_incidence(a,z);circle_incidence(b,z);circle_incidence(c,z);}
-    else if(op=="incircle"){need(6);int i=pid(t[2]),a=pid(t[3]),b=pid(t[4]),c=pid(t[5]);Line ab=through("",points_[a],points_[b],"");long double r=ab.a*points_[i].x+ab.b*points_[i].y+ab.c;add_circle({t[1],points_[i],r*r,op});(void)c;}
+    else if(op=="incircle"){need(6);int i=pid(t[2]),a=pid(t[3]),b=pid(t[4]),c=pid(t[5]);Line ab=through("",points_[a],points_[b],"");long double r=ab.a*points_[i].x+ab.b*points_[i].y+ab.c;add_circle({t[1],points_[i],r*r,op},i);(void)c;}
     else if(op=="intersection_lc_known"){need(5);int l=lid(t[2]),c=cid(t[3]),k=pid(t[4]);auto&ln=lines_[l];auto&cc=circles_[c];if(std::fabs(ln.a*points_[k].x+ln.b*points_[k].y+ln.c)>EPS*10||!near(dist2(cc.center,points_[k]),cc.r2,10))throw std::runtime_error(t[4]+" is not a known intersection of "+t[2]+" and "+t[3]);long double dx=ln.b,dy=-ln.a;long double vx=points_[k].x-cc.center.x,vy=points_[k].y-cc.center.y;long double tt=-2*dot(vx,vy,dx,dy);if(std::fabs(tt)<=EPS)throw std::runtime_error("known line-circle intersection is tangent; no distinct second point");if(!add_point({t[1],points_[k].x+tt*dx,points_[k].y+tt*dy,op}))return;int x=pid(t[1]);incidence(k,l,"known line-circle incidence");incidence(x,l,"line-circle second incidence");circle_incidence(k,c);circle_incidence(x,c);parallel_fact(segment(k,x),l,"line-circle known-root incidence");}
     else if(op=="intersection_cc_known"){need(5);int c1=cid(t[2]),c2=cid(t[3]),k=pid(t[4]);auto&a=circles_[c1];auto&b=circles_[c2];if(!near(dist2(a.center,points_[k]),a.r2,10)||!near(dist2(b.center,points_[k]),b.r2,10))throw std::runtime_error(t[4]+" is not on both circles");Line axis=through("",a.center,b.center,"");long double d=axis.a*points_[k].x+axis.b*points_[k].y+axis.c;if(std::fabs(d)<=EPS)throw std::runtime_error("known circle-circle intersection is tangent; no distinct second point");if(!add_point({t[1],points_[k].x-2*axis.a*d,points_[k].y-2*axis.b*d,op}))return;int x=pid(t[1]);circle_incidence(k,c1);circle_incidence(x,c1);circle_incidence(k,c2);circle_incidence(x,c2);}
     else if(op.rfind("prove_",0)==0){goals_.push_back({op.substr(6),std::vector<std::string>(t.begin()+1,t.end())});}
     else throw std::runtime_error("line "+std::to_string(line_no)+": unknown command "+op);
   }
 
+  void normalize_definition_incidences(){
+    // Two certified points determine a unique line. Merge every carrier that
+    // contains the same point pair; also merge known-parallel carriers through
+    // a common point. This turns long maximal collinear sets assembled through
+    // line(), foot(), reflection(), and intersections into a direct incidence
+    // fact rather than a large angle-lattice certificate.
+    std::vector<int> parent(lines_.size());std::iota(parent.begin(),parent.end(),0);
+    auto find=[&](int x){while(parent[static_cast<std::size_t>(x)]!=x){parent[static_cast<std::size_t>(x)]=parent[static_cast<std::size_t>(parent[static_cast<std::size_t>(x)])];x=parent[static_cast<std::size_t>(x)];}return x;};
+    auto unite=[&](int a,int b){a=find(a);b=find(b);if(a!=b)parent[static_cast<std::size_t>(b)]=a;};
+    std::map<std::pair<int,int>,int> pair_owner;
+    for(std::size_t l=0;l<line_points_.size();++l){auto on=line_points_[l];std::sort(on.begin(),on.end());on.erase(std::unique(on.begin(),on.end()),on.end());
+      for(std::size_t i=0;i<on.size();++i)for(std::size_t j=i+1;j<on.size();++j){auto key=std::pair{on[i],on[j]};auto [it,inserted]=pair_owner.emplace(key,static_cast<int>(l));if(!inserted)unite(static_cast<int>(l),it->second);}}
+    std::map<std::tuple<int,int,int>,int> direction_point_owner;
+    for(std::size_t l=0;l<line_points_.size();++l){auto [root,parity]=direction_find(static_cast<int>(l));for(int p:line_points_[l]){
+      auto key=std::tuple{root,parity,p};auto [it,inserted]=direction_point_owner.emplace(key,static_cast<int>(l));if(!inserted)unite(static_cast<int>(l),it->second);}}
+    std::map<int,std::set<int>> component_points;std::map<int,std::vector<int>> component_lines;
+    for(std::size_t l=0;l<line_points_.size();++l){int root=find(static_cast<int>(l));component_lines[root].push_back(static_cast<int>(l));component_points[root].insert(line_points_[l].begin(),line_points_[l].end());}
+    for(const auto&[root,members]:component_lines){std::vector<int> on(component_points[root].begin(),component_points[root].end());
+      for(int line:members)line_points_[static_cast<std::size_t>(line)]=on;}
+
+    // Three certified points determine a unique circle. Equivalent declared or
+    // constructed circles therefore share every known incidence.
+    std::vector<int> circle_parent(circles_.size());std::iota(circle_parent.begin(),circle_parent.end(),0);
+    auto circle_find=[&](int x){while(circle_parent[static_cast<std::size_t>(x)]!=x){circle_parent[static_cast<std::size_t>(x)]=circle_parent[static_cast<std::size_t>(circle_parent[static_cast<std::size_t>(x)])];x=circle_parent[static_cast<std::size_t>(x)];}return x;};
+    auto circle_unite=[&](int a,int b){a=circle_find(a);b=circle_find(b);if(a!=b)circle_parent[static_cast<std::size_t>(b)]=a;};
+    std::map<std::tuple<int,int,int>,int> triple_owner;
+    for(std::size_t c=0;c<circle_points_.size();++c){auto on=circle_points_[c];std::sort(on.begin(),on.end());on.erase(std::unique(on.begin(),on.end()),on.end());
+      for(std::size_t i=0;i<on.size();++i)for(std::size_t j=i+1;j<on.size();++j)for(std::size_t k=j+1;k<on.size();++k){auto key=std::tuple{on[i],on[j],on[k]};auto [it,inserted]=triple_owner.emplace(key,static_cast<int>(c));if(!inserted)circle_unite(static_cast<int>(c),it->second);}}
+    std::map<int,std::set<int>> component_circle_points;std::map<int,int> component_center;
+    for(std::size_t c=0;c<circle_points_.size();++c){int root=circle_find(static_cast<int>(c));component_circle_points[root].insert(circle_points_[c].begin(),circle_points_[c].end());if(circle_center_ids_[c]>=0)component_center.emplace(root,circle_center_ids_[c]);}
+    for(std::size_t c=0;c<circle_points_.size();++c){int root=circle_find(static_cast<int>(c));circle_points_[c].assign(component_circle_points[root].begin(),component_circle_points[root].end());if(auto it=component_center.find(root);it!=component_center.end())circle_center_ids_[c]=it->second;}
+  }
+
   void geometry_closure() {
     // Only declared construction incidences enter the proof layer. Numerical
     // discoveries remain conjectures and therefore cannot prove themselves.
+    normalize_definition_incidences();
     register_center_loci();
+    normalize_definition_incidences();
+    register_incenter_loci();
+    normalize_definition_incidences();
+    // The unique intersection of a segment carrier and its perpendicular
+    // bisector is the segment midpoint. This includes the familiar fact that
+    // the perpendicular foot from a circumcenter to a chord bisects the chord.
+    for(const auto&pb:perpendicular_bisectors_)for(int x:line_points_[static_cast<std::size_t>(pb.line)]){
+      if(x==pb.a||x==pb.b)continue;
+      bool on_base=false;
+      for(const auto&carrier:line_points_)if(std::find(carrier.begin(),carrier.end(),pb.a)!=carrier.end()&&
+          std::find(carrier.begin(),carrier.end(),pb.b)!=carrier.end()&&std::find(carrier.begin(),carrier.end(),x)!=carrier.end()){on_base=true;break;}
+      if(on_base){equal_length(pb.a,x,x,pb.b,"perpendicular-bisector intersection midpoint lengths");register_midpoint_fact(x,pb.a,pb.b,"perpendicular-bisector intersection");}
+    }
     // If two segments have the same midpoint, their endpoints form a
     // parallelogram in the crossed order. Both opposite-side parallels are
     // direct affine consequences and use no angle division.
@@ -732,8 +807,20 @@ class Engine {
       }
     for (std::size_t c=0;c<circle_points_.size();++c) {
       const auto& on=circle_points_[c];
+      int center=circle_center_ids_[c];
+      if(center>=0&&!on.empty())for(std::size_t i=1;i<on.size();++i)
+        equal_length(center,on[0],center,on[i],"equal radii of circle "+circles_[c].name);
       if(on.size()>=4) for(std::size_t i=3;i<on.size();++i)
         add_cyclic(on[0],on[1],on[2],on[i],"points constructed on circle "+circles_[c].name);
+    }
+    // Feet from an incenter to two adjacent sidelines are tangency points from
+    // the same vertex. Register both equal tangent lengths and equal inradii;
+    // these are the two equal-side pairs of the corresponding kite.
+    auto foot_on_side=[&](int source,int a,int b){for(const auto&f:foot_facts_)if(f.source==source){
+      const auto&on=line_points_[static_cast<std::size_t>(f.line)];if(std::find(on.begin(),on.end(),a)!=on.end()&&std::find(on.begin(),on.end(),b)!=on.end())return f.foot;}return -1;};
+    for(const auto&f:incenter_facts_){int ab=foot_on_side(f.center,f.a,f.b),ac=foot_on_side(f.center,f.a,f.c),bc=foot_on_side(f.center,f.b,f.c);
+      auto tangent_pair=[&](int vertex,int x,int y){if(x<0||y<0||x==y)return;equal_length(vertex,x,vertex,y,"equal tangents from vertex to incircle");equal_length(f.center,x,f.center,y,"equal inradii to tangent points");};
+      tangent_pair(f.a,ab,ac);tangent_pair(f.b,ab,bc);tangent_pair(f.c,ac,bc);
     }
     circle_cache_ = detect_circles(true);
     bool changed=true;int rounds=0;
@@ -781,28 +868,42 @@ class Engine {
         for(const auto&[_,on]:groups)if(on.size()>=4)for(std::size_t i=3;i<on.size();++i){auto before=cyclic_facts_.size();add_cyclic(on[0],on[1],on[2],on[i],"equal radii about "+points_[o].name);changed|=cyclic_facts_.size()!=before;}
       }
 
+      // Three equal radii to a known cyclic quadruple identify its circle
+      // center, so the radius to the fourth point is equal as well. Try every
+      // omitted vertex to cover all orderings of the cyclic fact.
+      for(const auto&q:cyclic_facts_)for(int o=0;o<(int)points_.size();++o){
+        if(std::find(q.begin(),q.end(),o)!=q.end())continue;
+        for(int omitted=0;omitted<4;++omitted){int representative=-1,root=-1;bool known=true;
+          for(int i=0;i<4;++i)if(i!=omitted){auto it=node.find(lenkey(o,q[static_cast<std::size_t>(i)]));if(it==node.end()){known=false;break;}int current=find_root(it->second);if(root<0){root=current;representative=q[static_cast<std::size_t>(i)];}else if(root!=current){known=false;break;}}
+          if(known)changed|=equal_length(o,representative,o,q[static_cast<std::size_t>(omitted)],"cyclic circle-center radius completion");
+        }
+      }
+
       for(const auto&x:circle_cache_)if(x.points.size()>=4){std::set<int>w;if(proves_cyclic(x.points,&w)){auto before=cyclic_facts_.size();add_cyclic(x.points[0],x.points[1],x.points[2],x.points[3],"converse cyclic angle theorem");changed|=cyclic_facts_.size()!=before;}}
       // Kite: two equidistant vertices give both perpendicular diagonals and the
       // full reflection angle relation between the four corresponding sides.
+      std::map<int,std::vector<SegmentKey>> length_classes;
+      for(const auto&[segment_key,id]:node)length_classes[find_root(id)].push_back(segment_key);
       std::map<std::pair<int,int>,std::set<int>> wings;
-      for(const auto& fact:equal_lengths_){auto x=fact.first,y=fact.second;int vertex=-1,b=-1,c=-1;
+      for(const auto&[_,segments]:length_classes)for(std::size_t i=0;i<segments.size();++i)for(std::size_t j=i+1;j<segments.size();++j){
+        auto x=segments[i],y=segments[j];int vertex=-1,b=-1,c=-1;
         if(x.first==y.first){vertex=x.first;b=x.second;c=y.second;}
         else if(x.first==y.second){vertex=x.first;b=x.second;c=y.first;}
         else if(x.second==y.first){vertex=x.second;b=x.first;c=y.second;}
         else if(x.second==y.second){vertex=x.second;b=x.first;c=y.first;}
-        if(vertex>=0&&b!=c){if(b>c)std::swap(b,c);wings[{b,c}].insert(vertex);
-          auto isosceles=equation({{segment(vertex,b),1},{segment(vertex,c),1},{segment(b,c),-2}});
-          if(!angles_.proves(isosceles,0,1)){
-            angles_.add(isosceles,0,1,"isosceles triangle theorem "+points_[vertex].name+points_[b].name+points_[c].name);
-            changed=true;
-          }
-        }}
+        if(vertex<0||b==c)continue;
+        if(b>c)std::swap(b,c);
+        wings[{b,c}].insert(vertex);
+        auto isosceles=equation({{segment(vertex,b),1},{segment(vertex,c),1},{segment(b,c),-2}});
+        if(!angles_.proves(isosceles,0,1)){angles_.add(isosceles,0,1,"isosceles triangle theorem "+points_[vertex].name+points_[b].name+points_[c].name);changed=true;}
+      }
       for(const auto& [base,vertices]:wings)for(auto ai=vertices.begin();ai!=vertices.end();++ai)for(auto di=std::next(ai);di!=vertices.end();++di){
         std::string why="kite theorem "+points_[*ai].name+points_[base.first].name+points_[*di].name+points_[base.second].name;
         int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2)){perpendicular_fact(ad,bc,why);changed=true;}
         auto symmetry=equation({{segment(*ai,base.first),1},{segment(*ai,base.second),1},{segment(*di,base.first),-1},{segment(*di,base.second),-1}});
         if(!angles_.proves(symmetry,0,1)){angles_.add(symmetry,0,1,why+" [reflection angles]");changed=true;}
       }
+
     }
   }
 
@@ -1075,7 +1176,7 @@ class Engine {
       if(g.kind=="collinear")ok=proves_collinear(names_to_points(g.args),&w);
       else if(g.kind=="concyclic")ok=proves_cyclic(names_to_points(g.args),&w);
       else if((g.kind=="parallel"||g.kind=="perpendicular")&&g.args.size()==4){int a=pid(g.args[0]),b=pid(g.args[1]),c=pid(g.args[2]),d=pid(g.args[3]);ok=angles_.proves(equation({{segment(a,b),1},{segment(c,d),-1}}),g.kind=="perpendicular"?1:0,g.kind=="perpendicular"?2:1,&w);}
-      else if(g.kind=="equal_distance"&&g.args.size()==4)ok=length_equal(pid(g.args[0]),pid(g.args[1]),pid(g.args[2]),pid(g.args[3]));
+      else if(g.kind=="equal_distance"&&g.args.size()==4)ok=prove_equal_distance(pid(g.args[0]),pid(g.args[1]),pid(g.args[2]),pid(g.args[3]));
       else throw std::runtime_error("bad or unsupported proof goal");
       if(ok) print_proof(label,w); else std::cout<<"UNPROVED "<<label<<"\n";
     }catch(const std::exception&e){std::cout<<"ERROR goal: "<<e.what()<<"\n";}}}

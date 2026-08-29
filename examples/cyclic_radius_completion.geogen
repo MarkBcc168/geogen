@@ -1,0 +1,9 @@
+# Three radii from a known cyclic quadruple determine the fourth radius.
+mode prove
+triangle A B C
+circumcenter O A B C
+midpoint M B C
+line AM A M
+circumcircle omega A B C
+intersection_lc_known D AM omega A
+prove_equal_distance O A O D

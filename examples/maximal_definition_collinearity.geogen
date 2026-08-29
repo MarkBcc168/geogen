@@ -1,0 +1,30 @@
+# Every point below is certified on the same AB carrier through nested
+# construction definitions, even when an intermediate line is named BF.
+mode prove
+triangle A B C
+midpoint M B C
+perp_bisector p A M
+line AB A B
+line AC A C
+intersection_ll E p AC
+intersection_ll F p AB
+
+angle_bisector e_bisector M E F
+intersection_ll P e_bisector AB
+foot U M AC
+foot Q U AB
+reflection_point R B A
+
+circumcenter O1 E B A
+reflection_point T B O1
+circle c1 T Q
+intersection_lc_known S AB c1 Q
+
+line BF B F
+orthocenter O2 B M E
+circle c2 O2 A
+intersection_lc_known V AC c2 A
+circle c3 V B
+intersection_lc_known W BF c3 B
+
+prove_collinear A B F P Q R S W
