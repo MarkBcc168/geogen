@@ -1,0 +1,6 @@
+mode prove
+triangle A B C
+circle beta B A
+circle gamma C A
+intersection_cc_known X beta gamma A
+prove_perpendicular A X B C

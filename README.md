@@ -182,6 +182,10 @@ intersection_cc_known Y circle_one circle_two K
 no distinct second point. Thus configuration construction never invokes a
 general quadratic solver.
 
+When both circles have named centers, a known-root circle-circle intersection
+also registers the standard common-chord theorem: the two intersection points
+are reflections across the center line, and their chord is perpendicular to it.
+
 For example, the following automatically creates a point named
 `X(secant,omega,A)` at the second intersection:
 
@@ -251,6 +255,16 @@ successful angular proof lists the construction/theorem facts used. See
   `angle(XA)+angle(XB)=2*angle(AB)`. This retains integer coefficients and lets
   circumcenter-radius facts participate in the full angle chase. Conversely, a
   proved base-angle relation of this form registers `XA=XB`.
+- The incenter of a certified isosceles triangle inherits the triangle's
+  reflection symmetry: it is equidistant from the base endpoints, and its line
+  to the apex is perpendicular to the base. This also lets nested centers reuse
+  that symmetry axis.
+- The perpendicular-bisector theorem is bidirectional: every point on the
+  locus gains equal endpoint distances, and every known equal-distance point
+  is attached to an existing canonical locus for those endpoints.
+- A line reflection records its full undivided direction identity at every
+  certified point of the mirror. In particular, reflection across an angle
+  bisector maps one sideline to the other without requiring angle division.
 - Definition-certified line carriers sharing two points, or sharing one point
   with a known parallel direction, are merged. Circles sharing three certified
   points are merged likewise. Thus every line-line, known-root line-circle, and

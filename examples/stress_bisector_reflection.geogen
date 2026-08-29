@@ -1,0 +1,9 @@
+mode prove
+triangle A B C
+reflection_point P B A
+angle_bisector axis B A C
+reflection_line Q P axis
+midpoint M Q C
+prove_collinear A C Q
+prove_collinear A C M
+prove_collinear A C Q M

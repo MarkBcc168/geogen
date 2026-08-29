@@ -138,6 +138,18 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/iran_lemma.geogen)
   set_tests_properties(iran_lemma_right_angle PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED perpendicular.A,X,B,X")
+  add_test(NAME isosceles_incenter_symmetry
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/stress_isosceles_incenter.geogen)
+  set_tests_properties(isosceles_incenter_symmetry PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear.A,B,H")
+  add_test(NAME angle_bisector_reflection_symmetry
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/stress_bisector_reflection.geogen)
+  set_tests_properties(angle_bisector_reflection_symmetry PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear.A,C,Q,M")
+  add_test(NAME circle_circle_center_axis
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/stress_circle_circle_axis.geogen)
+  set_tests_properties(circle_circle_center_axis PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED perpendicular.A,X,B,C")
   add_test(NAME cyclic_radius_completion
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/cyclic_radius_completion.geogen)
   set_tests_properties(cyclic_radius_completion PROPERTIES

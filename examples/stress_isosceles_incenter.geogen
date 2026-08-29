@@ -1,0 +1,8 @@
+mode prove
+triangle A B C
+circumcenter O C A B
+incenter I B A O
+orthocenter H B I O
+prove_equal_distance I A I B
+prove_perpendicular O I A B
+prove_collinear A B H
