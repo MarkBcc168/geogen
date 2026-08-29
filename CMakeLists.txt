@@ -106,4 +106,12 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthocenter_reflection.geogen)
   set_tests_properties(orthocenter_reflection_collinear PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED collinear.A,H,D")
+  add_test(NAME shared_midpoint_parallelogram
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/parallelogram_reflection.geogen)
+  set_tests_properties(shared_midpoint_parallelogram PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED parallel.A,B,C,D")
+  add_test(NAME point_reflection_midpoint_cyclic
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/parallelogram_reflection.geogen)
+  set_tests_properties(point_reflection_midpoint_cyclic PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.B,H,C,D")
 endif()

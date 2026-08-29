@@ -1,0 +1,10 @@
+# A point reflection supplies a second diagonal with the same midpoint. The
+# resulting parallelogram directions combine with the orthocenter altitudes.
+mode prove
+triangle A B C
+orthocenter H A B C
+midpoint M B C
+reflection_point D A M
+prove_parallel A B C D
+prove_parallel A C B D
+prove_concyclic B H C D
