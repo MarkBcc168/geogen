@@ -100,8 +100,10 @@ perpendicular through a point. Circles may be center-radius circles,
 circumcircles, or incircles. These auxiliary objects are interleaved with point
 generation and bounded indirectly by the point cap.
 
-Input choices use weights `1/(depth+1)^2`, so initial and shallow points, lines,
-and circles are substantially more likely to be reused than deeply nested ones.
+Input choices use weights proportional to `4^(-depth)`, normalized to the
+shallowest currently available object. Each additional construction level is
+therefore four times less likely to be selected. Initial and shallow points,
+lines, and circles are strongly preferred over deeply nested ones.
 The symbolic construction RNG uses `option seed` and is shared by all numerical
 trials; only the initial coordinates vary. Consequently every trial tests the
 same named construction graph. Set `option line_circle_intersections 0` to
@@ -125,7 +127,10 @@ POINT Y = other_intersection(line(A,C),circle(B,A),A)
 The identifier before `=` is the stable name used by coincidence statements.
 The expression after `=` records the complete definition. This keeps generated
 IDs compact while showing exactly which earlier points and auxiliary objects
-produce them.
+produce them. Points explicitly constructed in the input are treated as atomic
+inside later generated definitions. Thus the prompt's `E` and `F` remain `E` and
+`F`, rather than being repeatedly expanded into their line intersections; their
+own `POINT E = ...` and `POINT F = ...` records still show their definitions.
 
 The symbolic names are identical across random trials. In generation mode, only
 points successfully constructed in every trial are retained in the final list.

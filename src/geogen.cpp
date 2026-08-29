@@ -300,6 +300,7 @@ struct FootFact {int foot,source,line;};
 struct CircumcenterFact {int center,a,b,c;};
 struct OrthocenterFact {int center,a,b,c;};
 struct IncenterFact {int center,a,b,c;};
+struct LineReflectionFact {int image,source,line;};
 enum class ObjectKind {point,line,circle};
 struct ObjectRef {
   ObjectKind kind;std::string name;
@@ -327,8 +328,10 @@ class Engine {
   std::vector<CircumcenterFact> circumcenter_facts_;
   std::vector<OrthocenterFact> orthocenter_facts_;
   std::vector<IncenterFact> incenter_facts_;
+  std::vector<LineReflectionFact> line_reflection_facts_;
   std::map<std::pair<int,int>,int> perpendicular_bisector_loci_;
   std::vector<std::vector<std::string>> construction_commands_;
+  std::set<std::string> input_point_names_;
   bool record_commands_=true,ancestry_scope_=false;
   std::int64_t angle_coefficient_limit_=10000;
   std::vector<std::array<int,3>> initial_triangles_;
@@ -672,7 +675,7 @@ class Engine {
     else if(op=="perp_bisector"){need(4);int a=pid(t[2]),b=pid(t[3]);Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};Line base=through("",points_[a],points_[b],"");Line l{t[1],base.b,-base.a,-(base.b*m.x-base.a*m.y),op};int id=add_line(l);perpendicular_fact(id,segment(a,b),"perpendicular bisector "+t[1]);perpendicular_bisectors_.push_back({id,a,b});}
     else if(op=="parallel"||op=="perpendicular"){need(4);int p=pid(t[2]),base=lid(t[3]);const Line& q=lines_[base];Line l;if(op=="parallel")l={t[1],q.a,q.b,-q.a*points_[p].x-q.b*points_[p].y,op};else l={t[1],q.b,-q.a,-q.b*points_[p].x+q.a*points_[p].y,op};int id=add_line(l);incidence(p,id,op+" through point");if(op=="parallel")parallel_fact(id,base,"parallel construction "+t[1]);else perpendicular_fact(id,base,"perpendicular construction "+t[1]);}
     else if(op=="angle_bisector"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double ux=points_[a].x-points_[b].x,uy=points_[a].y-points_[b].y,vx=points_[c].x-points_[b].x,vy=points_[c].y-points_[b].y;long double un=std::hypotl(ux,uy),vn=std::hypotl(vx,vy);Point q{"",points_[b].x+ux/un+vx/vn,points_[b].y+uy/un+vy/vn,""};int id=add_line(through(t[1],points_[b],q,op));incidence(b,id,"angle bisector through vertex");angles_.add(equation({{id,2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"angle bisector "+t[1]);}
-    else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op}))return;int x=pid(t[1]);perpendicular_fact(segment(p,x),l,"line reflection "+t[1]);}
+    else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op}))return;int x=pid(t[1]);perpendicular_fact(segment(p,x),l,"line reflection "+t[1]);for(int axis_point:line_points_[static_cast<std::size_t>(l)])if(axis_point!=p&&axis_point!=x)equal_length(axis_point,p,axis_point,x,"reflection-axis equal distances");line_reflection_facts_.push_back({x,p,l});}
     else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);if(!add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op}))return;int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);inherit_collinearity(x,p,o,"point reflection incidence "+t[1]);equal_length(p,o,o,x,"point reflection lengths");}
     else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op}))return;int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);foot_facts_.push_back({x,p,l});}
     else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);if(!add_point(intersect(lines_[a],lines_[b],t[1],op)))return;int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
@@ -692,6 +695,19 @@ class Engine {
     // Only declared construction incidences enter the proof layer. Numerical
     // discoveries remain conjectures and therefore cannot prove themselves.
     register_center_loci();
+    // Reflecting an orthocenter across a sideline places its image on both the
+    // corresponding altitude and the circumcircle. Register this as a direct
+    // construction theorem, rather than forcing the angle lattice to recover
+    // the reflection orientation by cancelling a factor of two.
+    for(const auto&reflection:line_reflection_facts_)for(const auto&center:orthocenter_facts_)
+      if(reflection.source==center.center)for(auto [apex,b,c]:
+          {std::array{center.a,center.b,center.c},std::array{center.b,center.a,center.c},std::array{center.c,center.a,center.b}}){
+        const auto&axis=line_points_[static_cast<std::size_t>(reflection.line)];
+        if(std::find(axis.begin(),axis.end(),b)==axis.end()||std::find(axis.begin(),axis.end(),c)==axis.end())continue;
+        inherit_collinearity(reflection.image,apex,center.center,"orthocenter reflection lies on altitude");
+        if(apex!=reflection.image&&b!=reflection.image&&c!=reflection.image)
+          add_cyclic(apex,b,c,reflection.image,"orthocenter reflection across sideline theorem");
+      }
     for (std::size_t c=0;c<circle_points_.size();++c) {
       const auto& on=circle_points_[c];
       if(on.size()>=4) for(std::size_t i=3;i<on.size();++i)
@@ -774,8 +790,11 @@ class Engine {
   template<class Depths>
   int depth_weighted_pick(const std::vector<int>&items,const Depths&depths){
     if(items.empty())return -1;
+    int minimum=std::numeric_limits<int>::max();
+    for(int id:items)minimum=std::min(minimum,depths[static_cast<std::size_t>(id)]);
     std::vector<double> weights;weights.reserve(items.size());
-    for(int id:items){double d=1.0+static_cast<double>(depths[static_cast<std::size_t>(id)]);weights.push_back(1.0/(d*d));}
+    for(int id:items){int relative=depths[static_cast<std::size_t>(id)]-minimum;
+      weights.push_back(relative>500?0.0:std::ldexp(1.0,-2*relative));}
     std::discrete_distribution<std::size_t> choose(weights.begin(),weights.end());
     return items[choose(generation_rng_)];
   }
@@ -959,7 +978,11 @@ class Engine {
 
   using ProducerMap=std::map<ObjectRef,std::size_t>;
   std::string construction_expression(const ObjectRef&object,const ProducerMap&producer,
-      std::map<ObjectRef,std::string>&memo,std::set<ObjectRef>&active)const{
+      std::map<ObjectRef,std::string>&memo,std::set<ObjectRef>&active,bool force=false)const{
+    // Points supplied by the input configuration are named lemmas from the
+    // user's perspective. Expand their own POINT assignment, but keep them
+    // atomic whenever a later generated definition refers to them.
+    if(!force&&object.kind==ObjectKind::point&&input_point_names_.count(object.name))return object.name;
     if(auto known=memo.find(object);known!=memo.end())return known->second;
     if(!active.insert(object).second)return object.name;
     auto done=[&](std::string value){active.erase(object);memo[object]=value;return value;};
@@ -997,7 +1020,7 @@ class Engine {
     for(const auto&p:points_){
       std::string expression;
       if(p.origin.rfind("random initial",0)==0)expression="initial("+p.name+")";
-      else expression=construction_expression({ObjectKind::point,p.name},producer,memo,active);
+      else expression=construction_expression({ObjectKind::point,p.name},producer,memo,active,true);
       out.push_back("POINT "+p.name+" = "+expression);
     }
     return out;
@@ -1040,6 +1063,7 @@ class Engine {
     seed_(seed),generation_seed_(generation_seed),rng_(seed),generation_rng_(generation_seed){}
   void parse(std::istream& in) {std::string line;int no=0;while(std::getline(in,line)){++no;auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);std::istringstream ss(line);std::vector<std::string>t;std::string x;while(ss>>x)t.push_back(x);if(t.empty())continue;try{execute(t,no);}catch(const std::exception&e){throw std::runtime_error("line "+std::to_string(no)+": "+e.what());}}}
   void report(bool classify=true){
+    input_point_names_.clear();for(const auto&p:points_)input_point_names_.insert(p.name);
     expand_points();
     if(classify||prove_mode_||!goals_.empty())geometry_closure();
     std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";

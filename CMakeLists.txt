@@ -85,13 +85,25 @@ if(BUILD_TESTING)
   add_test(NAME random_generation_line_line
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
   set_tests_properties(random_generation_line_line PROPERTIES
-    PASS_REGULAR_EXPRESSION "intersection_ll")
+    PASS_REGULAR_EXPRESSION "POINT Xll.* = intersect")
   add_test(NAME random_generation_known_root_circles
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
   set_tests_properties(random_generation_known_root_circles PROPERTIES
-    PASS_REGULAR_EXPRESSION "intersection_(lc|cc)_known")
+    PASS_REGULAR_EXPRESSION "POINT X(lc|cc).* = other_intersection")
   add_test(NAME point_output_definitions
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/output_definitions.geogen)
   set_tests_properties(point_output_definitions PROPERTIES
     PASS_REGULAR_EXPRESSION "POINT X = reflect.A,line.B,C")
+  add_test(NAME input_points_stay_atomic
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/output_definitions.geogen)
+  set_tests_properties(input_points_stay_atomic PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT Y = reflect.C,E")
+  add_test(NAME orthocenter_reflection_cyclic
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthocenter_reflection.geogen)
+  set_tests_properties(orthocenter_reflection_cyclic PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,D")
+  add_test(NAME orthocenter_reflection_collinear
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthocenter_reflection.geogen)
+  set_tests_properties(orthocenter_reflection_collinear PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear.A,H,D")
 endif()

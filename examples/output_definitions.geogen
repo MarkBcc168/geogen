@@ -4,3 +4,8 @@ option trials 2
 triangle A B C
 line BC B C
 reflection_line X A BC
+midpoint M B C
+perp_bisector p A M
+line AC A C
+intersection_ll E p AC
+reflection_point Y C E
