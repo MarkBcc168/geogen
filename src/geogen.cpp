@@ -423,6 +423,17 @@ class Engine {
       if(std::find(on.begin(),on.end(),f.center)==on.end())
         incidence(f.center,line,"circumcenter lies on perpendicular bisector");
     }
+    // The midpoint of a chord is also on its perpendicular bisector. Keeping
+    // this as explicit incidence is important for maximal detected lines such
+    // as M(A,B), O(A,B,*), H(A,B,O(A,B,*)); otherwise a large configuration
+    // asks the modular angle backend to reconstruct a needlessly indirect proof.
+    for(const auto&f:midpoint_facts_){
+      auto it=perpendicular_bisector_loci_.find(lenkey(f.a,f.b));
+      if(it==perpendicular_bisector_loci_.end())continue;
+      const auto&on=line_points_[static_cast<std::size_t>(it->second)];
+      if(std::find(on.begin(),on.end(),f.midpoint)==on.end())
+        incidence(f.midpoint,it->second,"midpoint lies on perpendicular bisector");
+    }
 
     // Snapshot point-to-line incidence after the circumcenter loci above. For
     // H(A,P,Q), every known carrier of P,Q determines the same altitude through
@@ -439,9 +450,16 @@ class Engine {
         auto key=std::make_pair(apex,carrier);int altitude=-1;
         if(auto it=altitude_loci.find(key);it!=altitude_loci.end())altitude=it->second;
         else {
+          int best_score=-1;
           for(int candidate:point_lines[static_cast<std::size_t>(apex)])
             if(candidate!=carrier&&direction_known(candidate,carrier,1)){
-              altitude=candidate;break;
+              // Prefer a named/derived carrier over the private two-point
+              // segment from this very orthocenter construction. This merges
+              // nested centers into an already known locus such as the
+              // perpendicular bisector containing O(A,B,*) and M(A,B).
+              int score=static_cast<int>(line_points_[static_cast<std::size_t>(candidate)].size());
+              if(lines_[static_cast<std::size_t>(candidate)].origin!="segment")score+=1000000;
+              if(score>best_score){best_score=score;altitude=candidate;}
             }
           if(altitude<0){
             const Line&base=lines_[static_cast<std::size_t>(carrier)];
