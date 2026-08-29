@@ -1,0 +1,9 @@
+# Reflection of an orthocenter across a sideline lies on the circumcircle and
+# on the corresponding altitude.
+mode prove
+triangle A B C
+line BC B C
+orthocenter H A B C
+reflection_line D H BC
+prove_concyclic A B C D
+prove_collinear A H D
