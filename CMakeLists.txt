@@ -74,4 +74,20 @@ if(BUILD_TESTING)
   set_tests_properties(center_locus_collinearity_filter PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED collinear"
     FAIL_REGULAR_EXPRESSION "UNPROVED collinear")
+  add_test(NAME ancestry_scoped_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/ancestry_scope.geogen)
+  set_tests_properties(ancestry_scoped_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "summary stable_coincidences=")
+  add_test(NAME random_generation_reaches_cap
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
+  set_tests_properties(random_generation_reaches_cap PROPERTIES
+    PASS_REGULAR_EXPRESSION "points=100")
+  add_test(NAME random_generation_line_line
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
+  set_tests_properties(random_generation_line_line PROPERTIES
+    PASS_REGULAR_EXPRESSION "intersection_ll")
+  add_test(NAME random_generation_known_root_circles
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
+  set_tests_properties(random_generation_known_root_circles PROPERTIES
+    PASS_REGULAR_EXPRESSION "intersection_(lc|cc)_known")
 endif()

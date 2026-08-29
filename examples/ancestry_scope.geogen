@@ -1,0 +1,13 @@
+# Conservative filtering: each candidate is proved from its recursive
+# construction ancestry rather than from every generated point.
+mode generate
+option proof_scope ancestry
+option trials 3
+option max_points 20
+triangle A B C
+midpoint M B C
+perp_bisector p A M
+line AB A B
+line AC A C
+intersection_ll E p AC
+intersection_ll F p AB
