@@ -130,6 +130,14 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/incenter_kite.geogen)
   set_tests_properties(incenter_foot_kite PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED perpendicular.A,I,E,F")
+  add_test(NAME iran_lemma_diameter_circle
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/iran_lemma.geogen)
+  set_tests_properties(iran_lemma_diameter_circle PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.B,I,X,D,F")
+  add_test(NAME iran_lemma_right_angle
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/iran_lemma.geogen)
+  set_tests_properties(iran_lemma_right_angle PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED perpendicular.A,X,B,X")
   add_test(NAME cyclic_radius_completion
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/cyclic_radius_completion.geogen)
   set_tests_properties(cyclic_radius_completion PROPERTIES
