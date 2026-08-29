@@ -2,6 +2,7 @@
 /out/
 /geogen
 /geogen_san
+/inputs/
 *.o
 *.obj
 *.exe
