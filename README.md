@@ -164,6 +164,12 @@ circumcircle gamma A B C
 incircle inc I A B C
 ```
 
+The prover includes the general angle-defined kite congruence: if `AC`
+bisects both endpoint angles of quadrilateral `ABCD`, then it derives
+`AB = AD` and `CB = CD`. In particular, equal tangent lengths and equal
+inradii for feet from an incenter are consequences of this kite rule; they are
+not registered as a separate incenter-specific metric shortcut.
+
 The quadratic-free intersection commands require one already known root and
 return the other root:
 
