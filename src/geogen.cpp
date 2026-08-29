@@ -265,6 +265,8 @@ struct Candidate { std::string kind; std::vector<int> points; std::string source
 struct MidpointFact {int midpoint,a,b;};
 struct PerpendicularBisectorFact {int line,a,b;};
 struct FootFact {int foot,source,line;};
+struct CircumcenterFact {int center,a,b,c;};
+struct OrthocenterFact {int center,a,b,c;};
 
 class Engine {
   std::vector<Point> points_;
@@ -272,6 +274,7 @@ class Engine {
   std::vector<Circle> circles_;
   std::vector<std::vector<int>> line_points_;
   std::vector<std::vector<int>> circle_points_;
+  std::vector<int> direction_parent_,direction_rank_,direction_parity_;
   std::unordered_map<std::string, int> point_id_, line_id_, circle_id_;
   std::map<std::pair<int,int>, int> segment_line_;
   AngleSystem angles_;
@@ -282,6 +285,9 @@ class Engine {
   std::vector<MidpointFact> midpoint_facts_;
   std::vector<PerpendicularBisectorFact> perpendicular_bisectors_;
   std::vector<FootFact> foot_facts_;
+  std::vector<CircumcenterFact> circumcenter_facts_;
+  std::vector<OrthocenterFact> orthocenter_facts_;
+  std::map<std::pair<int,int>,int> perpendicular_bisector_loci_;
   std::vector<std::array<int,3>> initial_triangles_;
   bool prove_mode_ = false, show_easy_ = false;
   bool auto_line_circle_=false;
@@ -323,7 +329,8 @@ class Engine {
   int add_line(Line l) {
     if (line_id_.count(l.name)) throw std::runtime_error("duplicate line: " + l.name);
     int id = static_cast<int>(lines_.size()); line_id_[l.name] = id; lines_.push_back(std::move(l));
-    line_points_.emplace_back(); return id;
+    line_points_.emplace_back();direction_parent_.push_back(id);
+    direction_rank_.push_back(0);direction_parity_.push_back(0);return id;
   }
   void add_circle(Circle c) {
     if (circle_id_.count(c.name)) throw std::runtime_error("duplicate circle: " + c.name);
@@ -343,10 +350,33 @@ class Engine {
   static AngleSystem::Coeff equation(std::initializer_list<std::pair<int,int>> xs) {
     AngleSystem::Coeff c; for (auto [v,a] : xs) { c[v] += a; if (!c[v]) c.erase(v); } return c;
   }
+  std::pair<int,int> direction_find(int x){
+    if(direction_parent_[static_cast<std::size_t>(x)]==x)return {x,0};
+    auto [root,parity]=direction_find(direction_parent_[static_cast<std::size_t>(x)]);
+    direction_parity_[static_cast<std::size_t>(x)]^=parity;
+    direction_parent_[static_cast<std::size_t>(x)]=root;
+    return {root,direction_parity_[static_cast<std::size_t>(x)]};
+  }
+  void direction_union(int x,int y,int parity){
+    auto [rx,px]=direction_find(x);auto [ry,py]=direction_find(y);if(rx==ry)return;
+    if(direction_rank_[static_cast<std::size_t>(rx)]<direction_rank_[static_cast<std::size_t>(ry)]){
+      std::swap(rx,ry);std::swap(px,py);
+    }
+    direction_parent_[static_cast<std::size_t>(ry)]=rx;
+    direction_parity_[static_cast<std::size_t>(ry)]=px^py^parity;
+    if(direction_rank_[static_cast<std::size_t>(rx)]==direction_rank_[static_cast<std::size_t>(ry)])
+      ++direction_rank_[static_cast<std::size_t>(rx)];
+  }
+  bool direction_known(int x,int y,int parity){
+    auto [rx,px]=direction_find(x);auto [ry,py]=direction_find(y);
+    return rx==ry&&((px^py)==parity);
+  }
   void parallel_fact(int x, int y, const std::string& why) {
+    direction_union(x,y,0);
     angles_.add(equation({{x,1},{y,-1}}), 0, 1, why);
   }
   void perpendicular_fact(int x, int y, const std::string& why) {
+    direction_union(x,y,1);
     angles_.add(equation({{x,1},{y,-1}}), 1, 2, why);
   }
   void circumcenter_angle_fact(int o,int a,int b,int c,const std::string& why){
@@ -369,11 +399,71 @@ class Engine {
          std::find(on.begin(),on.end(),b)!=on.end())incidence(p,static_cast<int>(l),why);
     }
   }
+  int perpendicular_bisector_locus(int a,int b){
+    auto key=lenkey(a,b);auto known=perpendicular_bisector_loci_.find(key);
+    if(known!=perpendicular_bisector_loci_.end())return known->second;
+    for(const auto&pb:perpendicular_bisectors_)
+      if(lenkey(pb.a,pb.b)==key){perpendicular_bisector_loci_[key]=pb.line;return pb.line;}
+    Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};
+    Line base=through("",points_[a],points_[b],"");
+    std::string name="@perp_bisector("+points_[key.first].name+","+points_[key.second].name+")";
+    int line=add_line({name,base.b,-base.a,-(base.b*m.x-base.a*m.y),"circumcenter locus"});
+    perpendicular_fact(line,segment(a,b),"circumcenter perpendicular-bisector locus");
+    perpendicular_bisectors_.push_back({line,a,b});
+    perpendicular_bisector_loci_[key]=line;return line;
+  }
+  void register_center_loci(){
+    // Circumcenters sharing two defining points lie on one canonical
+    // perpendicular bisector. Registering incidence avoids rediscovering this
+    // definition-level locus from each pair of centers.
+    for(const auto&f:circumcenter_facts_)for(auto [a,b]:
+        {std::pair{f.a,f.b},std::pair{f.a,f.c},std::pair{f.b,f.c}}){
+      int line=perpendicular_bisector_locus(a,b);
+      const auto&on=line_points_[static_cast<std::size_t>(line)];
+      if(std::find(on.begin(),on.end(),f.center)==on.end())
+        incidence(f.center,line,"circumcenter lies on perpendicular bisector");
+    }
+
+    // Snapshot point-to-line incidence after the circumcenter loci above. For
+    // H(A,P,Q), every known carrier of P,Q determines the same altitude through
+    // A. The (A, carrier) key makes all such orthocenters share that altitude.
+    std::vector<std::vector<int>> point_lines(points_.size());
+    for(std::size_t line=0;line<line_points_.size();++line)
+      for(int p:line_points_[line])point_lines[static_cast<std::size_t>(p)].push_back(static_cast<int>(line));
+    std::map<std::pair<int,int>,int> altitude_loci;
+    for(const auto&f:orthocenter_facts_)for(auto [apex,b,c]:
+        {std::array{f.a,f.b,f.c},std::array{f.b,f.a,f.c},std::array{f.c,f.a,f.b}}){
+      for(int carrier:point_lines[static_cast<std::size_t>(b)]){
+        const auto&base_points=line_points_[static_cast<std::size_t>(carrier)];
+        if(std::find(base_points.begin(),base_points.end(),c)==base_points.end())continue;
+        auto key=std::make_pair(apex,carrier);int altitude=-1;
+        if(auto it=altitude_loci.find(key);it!=altitude_loci.end())altitude=it->second;
+        else {
+          for(int candidate:point_lines[static_cast<std::size_t>(apex)])
+            if(candidate!=carrier&&direction_known(candidate,carrier,1)){
+              altitude=candidate;break;
+            }
+          if(altitude<0){
+            const Line&base=lines_[static_cast<std::size_t>(carrier)];
+            std::string name="@alt("+points_[apex].name+","+std::to_string(carrier)+")";
+            altitude=add_line({name,base.b,-base.a,
+              -base.b*points_[apex].x+base.a*points_[apex].y,"orthocenter locus"});
+            incidence(apex,altitude,"orthocenter altitude through vertex");
+            perpendicular_fact(altitude,carrier,"orthocenter altitude locus");
+          }
+          altitude_loci[key]=altitude;
+        }
+        const auto&on=line_points_[static_cast<std::size_t>(altitude)];
+        if(std::find(on.begin(),on.end(),f.center)==on.end())
+          incidence(f.center,altitude,"orthocenter lies on altitude");
+      }
+    }
+  }
   void circle_incidence(int p, int c) {
     auto& on = circle_points_[static_cast<std::size_t>(c)];
     if (std::find(on.begin(), on.end(), p) == on.end()) on.push_back(p);
   }
-  static auto lenkey(int a, int b) { if (a>b) std::swap(a,b); return std::make_pair(a,b); }
+  static std::pair<int,int> lenkey(int a, int b) { if (a>b) std::swap(a,b); return std::make_pair(a,b); }
   bool equal_length(int a, int b, int c, int d, const std::string&) {
     auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y);
     return equal_lengths_.insert({x,y}).second;
@@ -485,8 +575,8 @@ class Engine {
     else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);if(!add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op}))return;int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);inherit_collinearity(x,p,o,"point reflection incidence "+t[1]);equal_length(p,o,o,x,"point reflection lengths");}
     else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op}))return;int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);foot_facts_.push_back({x,p,l});}
     else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);if(!add_point(intersect(lines_[a],lines_[b],t[1],op)))return;int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
-    else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);if(!add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op)))return;int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");circumcenter_angle_fact(o,a,b,c,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,b,c,a,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,c,a,b,"circumcenter angle theorem at "+t[1]);}
-    else if(op=="orthocenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Line bc=through("",points_[b],points_[c],""),ac=through("",points_[a],points_[c],"");Line ha{"",bc.b,-bc.a,-bc.b*points_[a].x+bc.a*points_[a].y,""},hb{"",ac.b,-ac.a,-ac.b*points_[b].x+ac.a*points_[b].y,""};if(!add_point(intersect(ha,hb,t[1],op)))return;int h=pid(t[1]);perpendicular_fact(segment(a,h),segment(b,c),"orthocenter altitude 1 "+t[1]);perpendicular_fact(segment(b,h),segment(a,c),"orthocenter altitude 2 "+t[1]);perpendicular_fact(segment(c,h),segment(a,b),"orthocenter closure "+t[1]);}
+    else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);if(!add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op)))return;int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");circumcenter_angle_fact(o,a,b,c,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,b,c,a,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,c,a,b,"circumcenter angle theorem at "+t[1]);circumcenter_facts_.push_back({o,a,b,c});}
+    else if(op=="orthocenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Line bc=through("",points_[b],points_[c],""),ac=through("",points_[a],points_[c],"");Line ha{"",bc.b,-bc.a,-bc.b*points_[a].x+bc.a*points_[a].y,""},hb{"",ac.b,-ac.a,-ac.b*points_[b].x+ac.a*points_[b].y,""};if(!add_point(intersect(ha,hb,t[1],op)))return;int h=pid(t[1]);perpendicular_fact(segment(a,h),segment(b,c),"orthocenter altitude 1 "+t[1]);perpendicular_fact(segment(b,h),segment(a,c),"orthocenter altitude 2 "+t[1]);perpendicular_fact(segment(c,h),segment(a,b),"orthocenter closure "+t[1]);orthocenter_facts_.push_back({h,a,b,c});}
     else if(op=="incenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double la=std::sqrt(dist2(points_[b],points_[c])),lb=std::sqrt(dist2(points_[a],points_[c])),lc=std::sqrt(dist2(points_[a],points_[b])),s=la+lb+lc;if(!add_point({t[1],(la*points_[a].x+lb*points_[b].x+lc*points_[c].x)/s,(la*points_[a].y+lb*points_[b].y+lc*points_[c].y)/s,op}))return;int i=pid(t[1]);angles_.add(equation({{segment(a,i),2},{segment(a,b),-1},{segment(a,c),-1}}),0,1,"incenter bisector at "+t[2]);angles_.add(equation({{segment(b,i),2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"incenter bisector at "+t[3]);angles_.add(equation({{segment(c,i),2},{segment(a,c),-1},{segment(b,c),-1}}),0,1,"incenter closure at "+t[4]);}
     else if(op=="circle"){need(4);int o=pid(t[2]),p=pid(t[3]);add_circle({t[1],points_[o],dist2(points_[o],points_[p]),op});circle_incidence(p,cid(t[1]));}
     else if(op=="circumcircle"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Point o=circumcenter(points_[a],points_[b],points_[c],"@"+t[1],op);add_circle({t[1],o,dist2(o,points_[a]),op});int z=cid(t[1]);circle_incidence(a,z);circle_incidence(b,z);circle_incidence(c,z);}
@@ -500,6 +590,7 @@ class Engine {
   void geometry_closure() {
     // Only declared construction incidences enter the proof layer. Numerical
     // discoveries remain conjectures and therefore cannot prove themselves.
+    register_center_loci();
     for (std::size_t c=0;c<circle_points_.size();++c) {
       const auto& on=circle_points_[c];
       if(on.size()>=4) for(std::size_t i=3;i<on.size();++i)

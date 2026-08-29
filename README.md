@@ -191,6 +191,13 @@ successful angular proof lists the construction/theorem facts used. See
 - A constructed circumcenter also adds all cyclic forms of
   `angle(ACB)+angle(OAB)=90 degrees`. This resolves the factor-of-two ambiguity
   that equal-radius isosceles relations alone cannot remove modulo 180 degrees.
+- Circumcenters through a fixed pair are registered on the pair's canonical
+  perpendicular-bisector locus. Orthocenters are likewise registered on the
+  altitude determined by a vertex and any known carrier of the opposite side.
+  Consequently, collinear families such as `O(A,B,*)` and `H(A,P,Q)` for
+  collinear `P,Q` are treated as construction-level facts. A parity union-find
+  matches known parallel and perpendicular carriers without repeatedly querying
+  the full angle lattice.
 - A numerical coincidence which follows from this fact base is labeled `EASY`
   and suppressed by default. Remaining statements are printed as `NONTRIVIAL`.
 

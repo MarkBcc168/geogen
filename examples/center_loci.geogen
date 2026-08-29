@@ -1,0 +1,17 @@
+mode prove
+triangle A B C
+midpoint M B C
+midpoint N B M
+
+# Centers through the fixed chord AB share its perpendicular bisector.
+circumcenter O1 A B C
+circumcenter O2 A B M
+circumcenter O3 A B N
+prove_collinear O1 O2 O3
+
+# Since B, M, and C share a carrier, these orthocenters share the altitude
+# through A perpendicular to that carrier.
+orthocenter H1 A B C
+orthocenter H2 A B M
+orthocenter H3 A M C
+prove_collinear H1 H2 H3
