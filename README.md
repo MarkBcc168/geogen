@@ -55,6 +55,12 @@ found in every trial. This makes accidental isosceles, right-angle, parallel, or
 concyclic behavior overwhelmingly unlikely. It remains randomized evidence, not
 a proof; `mode prove` uses the symbolic fact system for proof goals.
 
+The symbolic construction and theorem closure are identical across generic
+random realizations, so generation mode classifies coincidences during the first
+trial only. Later trials perform the numerical construction and coincidence
+scans, then intersect their findings with that classified set. This preserves
+the output while avoiding repeated angle-lattice proofs.
+
 The advanced `point P x y` command remains available for diagnostics, but a
 fixed-coordinate point changes the problem and should not normally be used in a
 universal triangle configuration.
@@ -177,6 +183,10 @@ successful angular proof lists the construction/theorem facts used. See
   when both primes reconstruct the same coefficients and every absolute value is
   at most `angle_coefficient_limit` (10,000 by default). Modular division such as
   `1/2` reconstructs near half the prime and is therefore rejected.
+- Identical angle facts are stored once, and successful validated queries are
+  cached. Prime-field membership is tested using coefficient-only sparse rows;
+  the more expensive original-fact combination is reconstructed only after a
+  candidate is known to lie in both field spans.
 - The fixed-point chase adds cyclic converse facts and indexed kite consequences;
   orthocenter, circumcenter, incenter, midpoint, incidence, parallel,
   perpendicular, reflection, and angle-bisector constructions seed their standard

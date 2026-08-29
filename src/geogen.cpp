@@ -103,7 +103,9 @@ class AngleSystem {
  private:
   static constexpr int HALF_TURN_COLUMN=1000000000;
   std::vector<Equation> rows_;
+  std::set<Coeff> row_keys_;
   mutable std::vector<Equation> basis_;
+  mutable std::map<Coeff,std::set<int>> proven_cache_;
   mutable bool dirty_=true;
   mutable bool modular_mode_=false;
   struct ModularEquation {
@@ -111,7 +113,7 @@ class AngleSystem {
     std::map<int,std::int64_t> combination; // coefficients of original fact rows
   };
   static constexpr std::array<std::int64_t,2> MODULI{1000000007LL,1000000009LL};
-  mutable std::vector<std::map<int,ModularEquation>> modular_basis_;
+  mutable std::vector<std::unordered_map<int,ModularEquation>> modular_basis_;
   std::int64_t coefficient_limit_=10000;
   std::vector<std::string> reason_text_;
 
@@ -148,11 +150,25 @@ class AngleSystem {
   }
   static void modular_add_scaled(ModularEquation&x,const ModularEquation&y,std::int64_t f,std::int64_t p){
     if(!f)return;
-    for(auto[v,a]:y.c){auto value=mod_norm(x.c[v]+mod_mul(f,a,p),p);if(value)x.c[v]=value;else x.c.erase(v);}
-    for(auto[v,a]:y.combination){auto value=mod_norm(x.combination[v]+mod_mul(f,a,p),p);if(value)x.combination[v]=value;else x.combination.erase(v);}
+    for(auto[v,a]:y.c){auto it=x.c.find(v);auto old=it==x.c.end()?0:it->second;
+      auto value=mod_norm(old+mod_mul(f,a,p),p);if(value)x.c[v]=value;else if(it!=x.c.end())x.c.erase(it);}
+    for(auto[v,a]:y.combination){auto it=x.combination.find(v);auto old=it==x.combination.end()?0:it->second;
+      auto value=mod_norm(old+mod_mul(f,a,p),p);if(value)x.combination[v]=value;else if(it!=x.combination.end())x.combination.erase(it);}
   }
-  static void modular_reduce(ModularEquation&e,const std::map<int,ModularEquation>&basis,std::int64_t p){
+  static void modular_reduce(ModularEquation&e,const std::unordered_map<int,ModularEquation>&basis,std::int64_t p){
     while(!e.c.empty()){int pivot=e.c.begin()->first;auto it=basis.find(pivot);if(it==basis.end())break;modular_add_scaled(e,it->second,mod_norm(-e.c.begin()->second,p),p);}
+  }
+  static bool modular_member(const Equation&e,const std::unordered_map<int,ModularEquation>&basis,std::int64_t p){
+    auto row=modularized(e,p);
+    while(!row.c.empty()){
+      int pivot=row.c.begin()->first;auto it=basis.find(pivot);if(it==basis.end())return false;
+      auto factor=mod_norm(-row.c.begin()->second,p);
+      for(auto[v,a]:it->second.c){auto jt=row.c.find(v);auto old=jt==row.c.end()?0:jt->second;
+        auto value=mod_norm(old+mod_mul(factor,a,p),p);
+        if(value)row.c[v]=value;else if(jt!=row.c.end())row.c.erase(jt);
+      }
+    }
+    return true;
   }
   void modular_insert(const Equation&e,std::size_t mi,int fact_id)const{
     auto p=MODULI[mi];auto row=modularized(e,p);row.combination[fact_id]=1;
@@ -212,14 +228,16 @@ class AngleSystem {
  public:
   void set_coefficient_limit(std::int64_t limit){
     if(limit<1)throw std::runtime_error("angle coefficient limit must be positive");
-    coefficient_limit_=limit;
+    coefficient_limit_=limit;proven_cache_.clear();
   }
   int add_reason(std::string s) {
     reason_text_.push_back(std::move(s)); return static_cast<int>(reason_text_.size()) - 1;
   }
 
   bool add(const Coeff& c, std::int64_t num, std::int64_t den, const std::string& why) {
-    Equation e=converted(c,num,den);e.reasons.insert(add_reason(why));
+    Equation e=converted(c,num,den);
+    if(!row_keys_.insert(e.c).second)return false;
+    e.reasons.insert(add_reason(why));
     rows_.push_back(e);
     if(modular_mode_&&!dirty_)for(std::size_t mi=0;mi<MODULI.size();++mi)modular_insert(e,mi,static_cast<int>(rows_.size()-1));
     else dirty_=true;
@@ -228,15 +246,28 @@ class AngleSystem {
 
   bool proves(const Coeff& c, std::int64_t num, std::int64_t den,
               std::set<int>* reasons = nullptr) const {
-    rebuild();Equation e=converted(c,num,den);
-    if(modular_mode_){std::map<int,std::int64_t> expected;for(std::size_t mi=0;mi<MODULI.size();++mi){
-      auto p=MODULI[mi];auto row=modularized(e,p);modular_reduce(row,modular_basis_[mi],p);if(!row.c.empty())return false;
+    Equation e=converted(c,num,den);
+    if(auto it=proven_cache_.find(e.c);it!=proven_cache_.end()){
+      if(reasons)*reasons=it->second;
+      return true;
+    }
+    rebuild();
+    if(modular_mode_){
+      // Most theorem probes fail. Test field membership without carrying the
+      // much larger proof-combination maps, then reconstruct and validate a
+      // small integer certificate only for successful candidates.
+      for(std::size_t mi=0;mi<MODULI.size();++mi)
+        if(!modular_member(e,modular_basis_[mi],MODULI[mi]))return false;
+      std::map<int,std::int64_t> expected;for(std::size_t mi=0;mi<MODULI.size();++mi){
+      auto p=MODULI[mi];auto row=modularized(e,p);modular_reduce(row,modular_basis_[mi],p);
       std::map<int,std::int64_t> signed_coefficients;
       for(auto[id,value]:row.combination){if(value>p/2)value-=p;if(std::llabs(value)>coefficient_limit_)return false;if(value)signed_coefficients[id]=value;}
       if(mi==0)expected=std::move(signed_coefficients);else if(signed_coefficients!=expected)return false;
     }
-      if(reasons)for(const auto&[fact,coefficient]:expected)if(fact>=0&&coefficient)
-        reasons->insert(rows_[static_cast<std::size_t>(fact)].reasons.begin(),rows_[static_cast<std::size_t>(fact)].reasons.end());
+      std::set<int> proof_reasons;
+      for(const auto&[fact,coefficient]:expected)if(fact>=0&&coefficient)
+        proof_reasons.insert(rows_[static_cast<std::size_t>(fact)].reasons.begin(),rows_[static_cast<std::size_t>(fact)].reasons.end());
+      proven_cache_[e.c]=proof_reasons;if(reasons)*reasons=std::move(proof_reasons);
       return true;
     }
     for(const auto& row:basis_){
@@ -248,7 +279,7 @@ class AngleSystem {
       add_scaled(e,row,-(value/divisor));
     }
     if(!e.c.empty())return false;
-    if(reasons)*reasons=std::move(e.reasons);
+    proven_cache_[e.c]=e.reasons;if(reasons)*reasons=std::move(e.reasons);
     return true;
   }
 
@@ -771,7 +802,26 @@ class Engine {
  public:
   explicit Engine(std::uint64_t seed):rng_(seed){}
   void parse(std::istream& in) {std::string line;int no=0;while(std::getline(in,line)){++no;auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);std::istringstream ss(line);std::vector<std::string>t;std::string x;while(ss>>x)t.push_back(x);if(t.empty())continue;try{execute(t,no);}catch(const std::exception&e){throw std::runtime_error("line "+std::to_string(no)+": "+e.what());}}}
-  void report(){expand_points();geometry_closure();std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";for(const auto&p:points_)std::cout<<"POINT "<<p.name<<" ["<<p.origin<<"]\n";if(prove_mode_||!goals_.empty()){run_goals();return;}auto ls=detect_lines();std::size_t easy=0,hard=0;for(auto&x:ls){std::set<int>w;bool e=proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}for(auto&x:circle_cache_){std::set<int>w;bool e=proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";}
+  void report(bool classify=true){
+    expand_points();
+    if(classify||prove_mode_||!goals_.empty())geometry_closure();
+    std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";
+    for(const auto&p:points_)std::cout<<"POINT "<<p.name<<" ["<<p.origin<<"]\n";
+    if(prove_mode_||!goals_.empty()){run_goals();return;}
+    auto ls=detect_lines();
+    if(!classify){
+      auto cs=detect_circles();
+      for(const auto&x:ls){auto statement="collinear("+point_list(x.points)+")";
+        std::cout<<"NONTRIVIAL "<<statement<<'\n';if(show_easy_)std::cout<<"EASY "<<statement<<'\n';}
+      for(const auto&x:cs){auto statement="concyclic("+point_list(x.points)+")";
+        std::cout<<"NONTRIVIAL "<<statement<<'\n';if(show_easy_)std::cout<<"EASY "<<statement<<'\n';}
+      return;
+    }
+    std::size_t easy=0,hard=0;
+    for(auto&x:ls){std::set<int>w;bool e=proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}
+    for(auto&x:circle_cache_){std::set<int>w;bool e=proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}
+    std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";
+  }
 };
 
 } // namespace geogen
@@ -800,10 +850,10 @@ RunSettings read_settings(const std::string& input) {
   return s;
 }
 
-std::string execute_once(const std::string& input,std::uint64_t seed) {
+std::string execute_once(const std::string& input,std::uint64_t seed,bool classify=true) {
   geogen::Engine e(seed);std::istringstream in(input);e.parse(in);
   std::ostringstream captured;auto* old=std::cout.rdbuf(captured.rdbuf());
-  try{e.report();std::cout.rdbuf(old);}catch(...){std::cout.rdbuf(old);throw;}
+  try{e.report(classify);std::cout.rdbuf(old);}catch(...){std::cout.rdbuf(old);throw;}
   return captured.str();
 }
 
@@ -834,7 +884,7 @@ int main(int argc,char**argv){try{
   std::vector<std::string> common_points;
   for(int trial=0;trial<settings.trials;++trial){
     std::uint64_t trial_seed=settings.seed+0x9e3779b97f4a7c15ULL*static_cast<std::uint64_t>(trial+1);
-    std::string report=execute_once(input,trial_seed);
+    std::string report=execute_once(input,trial_seed,trial==0);
     auto current=findings(report,settings.show_easy);auto current_points=point_listing(report);
     if(trial==0){common=std::move(current);common_points=std::move(current_points);}
     else {
