@@ -90,4 +90,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
   set_tests_properties(random_generation_known_root_circles PROPERTIES
     PASS_REGULAR_EXPRESSION "intersection_(lc|cc)_known")
+  add_test(NAME point_output_definitions
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/output_definitions.geogen)
+  set_tests_properties(point_output_definitions PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT X = reflect.A,line.B,C")
 endif()

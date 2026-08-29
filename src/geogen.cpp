@@ -957,6 +957,51 @@ class Engine {
     std::vector<Candidate>out;for(auto&[_,v]:uniq)out.push_back(v);return out;
   }
 
+  using ProducerMap=std::map<ObjectRef,std::size_t>;
+  std::string construction_expression(const ObjectRef&object,const ProducerMap&producer,
+      std::map<ObjectRef,std::string>&memo,std::set<ObjectRef>&active)const{
+    if(auto known=memo.find(object);known!=memo.end())return known->second;
+    if(!active.insert(object).second)return object.name;
+    auto done=[&](std::string value){active.erase(object);memo[object]=value;return value;};
+    auto found=producer.find(object);if(found==producer.end())return done(object.name);
+    const auto&t=construction_commands_[found->second];const auto&op=t[0];
+    auto point=[&](std::size_t i){return construction_expression({ObjectKind::point,t[i]},producer,memo,active);};
+    auto line=[&](std::size_t i){return construction_expression({ObjectKind::line,t[i]},producer,memo,active);};
+    auto circle=[&](std::size_t i){return construction_expression({ObjectKind::circle,t[i]},producer,memo,active);};
+    if(op=="triangle"||op=="quadrilateral"||op=="cyclic_quad")return done(object.name);
+    if(op=="point")return done("point("+t[2]+","+t[3]+")");
+    if(op=="line")return done("line("+point(2)+","+point(3)+")");
+    if(op=="midpoint")return done("midpoint("+point(2)+","+point(3)+")");
+    if(op=="perp_bisector")return done("perpendicular_bisector("+point(2)+","+point(3)+")");
+    if(op=="parallel")return done("parallel("+point(2)+","+line(3)+")");
+    if(op=="perpendicular")return done("perpendicular("+point(2)+","+line(3)+")");
+    if(op=="angle_bisector")return done("angle_bisector("+point(2)+","+point(3)+","+point(4)+")");
+    if(op=="reflection_line")return done("reflect("+point(2)+","+line(3)+")");
+    if(op=="reflection_point")return done("reflect("+point(2)+","+point(3)+")");
+    if(op=="foot")return done("foot("+point(2)+","+line(3)+")");
+    if(op=="intersection_ll")return done("intersect("+line(2)+","+line(3)+")");
+    if(op=="circumcenter"||op=="orthocenter"||op=="incenter")
+      return done(op+"("+point(2)+","+point(3)+","+point(4)+")");
+    if(op=="circle")return done("circle("+point(2)+","+point(3)+")");
+    if(op=="circumcircle")return done("circumcircle("+point(2)+","+point(3)+","+point(4)+")");
+    if(op=="incircle")return done("incircle("+point(2)+","+point(3)+","+point(4)+","+point(5)+")");
+    if(op=="intersection_lc_known")return done("other_intersection("+line(2)+","+circle(3)+","+point(4)+")");
+    if(op=="intersection_cc_known")return done("other_intersection("+circle(2)+","+circle(3)+","+point(4)+")");
+    return done(object.name);
+  }
+  std::vector<std::string> point_definitions()const{
+    ProducerMap producer;
+    for(std::size_t i=0;i<construction_commands_.size();++i)
+      for(auto output:command_outputs(construction_commands_[i]))producer.emplace(std::move(output),i);
+    std::map<ObjectRef,std::string> memo;std::set<ObjectRef> active;std::vector<std::string> out;out.reserve(points_.size());
+    for(const auto&p:points_){
+      std::string expression;
+      if(p.origin.rfind("random initial",0)==0)expression="initial("+p.name+")";
+      else expression=construction_expression({ObjectKind::point,p.name},producer,memo,active);
+      out.push_back("POINT "+p.name+" = "+expression);
+    }
+    return out;
+  }
   std::string point_list(const std::vector<int>& p) const {std::string s;for(std::size_t i=0;i<p.size();++i){if(i)s+=",";s+=points_[p[i]].name;}return s;}
   void print_proof(const std::string& label,const std::set<int>& w)const{std::cout<<"PROVED "<<label<<"\n";int step=1;for(auto&s:angles_.explain(w))std::cout<<"  "<<step++<<". "<<s<<"\n";if(step==1)std::cout<<"  1. direct known fact\n";}
   bool ancestry_proves(const std::string&kind,const std::vector<int>&candidate)const{
@@ -998,7 +1043,7 @@ class Engine {
     expand_points();
     if(classify||prove_mode_||!goals_.empty())geometry_closure();
     std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";
-    for(const auto&p:points_)std::cout<<"POINT "<<p.name<<" ["<<p.origin<<"]\n";
+    for(const auto&definition:point_definitions())std::cout<<definition<<'\n';
     if(prove_mode_||!goals_.empty()){run_goals();return;}
     auto ls=detect_lines();
     if(!classify){
