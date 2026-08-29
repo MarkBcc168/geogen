@@ -107,17 +107,25 @@ trials; only the initial coordinates vary. Consequently every trial tests the
 same named construction graph. Set `option line_circle_intersections 0` to
 exclude both known-root circle-intersection methods.
 
-Every report lists the resulting points without trial-specific coordinates:
+Every report lists the resulting points as parseable symbolic assignments,
+without trial-specific coordinates. Supporting line and circle constructions are
+expanded recursively, so each record is self-contained:
 
 ```text
-points=6
-POINT A [random initial triangle]
-POINT B [random initial triangle]
-POINT C [random initial triangle]
-POINT O(A,B,C) [circumcenter]
-POINT H(A,B,C) [orthocenter]
-POINT M(A,B) [midpoint]
+points=7
+POINT A = initial(A)
+POINT B = initial(B)
+POINT C = initial(C)
+POINT M = midpoint(B,C)
+POINT E = intersect(perpendicular_bisector(A,midpoint(B,C)),line(A,C))
+POINT X = reflect(A,line(B,C))
+POINT Y = other_intersection(line(A,C),circle(B,A),A)
 ```
+
+The identifier before `=` is the stable name used by coincidence statements.
+The expression after `=` records the complete definition. This keeps generated
+IDs compact while showing exactly which earlier points and auxiliary objects
+produce them.
 
 The symbolic names are identical across random trials. In generation mode, only
 points successfully constructed in every trial are retained in the final list.
