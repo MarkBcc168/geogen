@@ -299,6 +299,7 @@ struct PerpendicularBisectorFact {int line,a,b;};
 struct FootFact {int foot,source,line;};
 struct CircumcenterFact {int center,a,b,c;};
 struct OrthocenterFact {int center,a,b,c;};
+struct IncenterFact {int center,a,b,c;};
 enum class ObjectKind {point,line,circle};
 struct ObjectRef {
   ObjectKind kind;std::string name;
@@ -309,6 +310,7 @@ class Engine {
   std::vector<Point> points_;
   std::vector<Line> lines_;
   std::vector<Circle> circles_;
+  std::vector<int> point_depth_,line_depth_,circle_depth_;
   std::vector<std::vector<int>> line_points_;
   std::vector<std::vector<int>> circle_points_;
   std::vector<int> direction_parent_,direction_rank_,direction_parity_;
@@ -324,17 +326,19 @@ class Engine {
   std::vector<FootFact> foot_facts_;
   std::vector<CircumcenterFact> circumcenter_facts_;
   std::vector<OrthocenterFact> orthocenter_facts_;
+  std::vector<IncenterFact> incenter_facts_;
   std::map<std::pair<int,int>,int> perpendicular_bisector_loci_;
   std::vector<std::vector<std::string>> construction_commands_;
   bool record_commands_=true,ancestry_scope_=false;
   std::int64_t angle_coefficient_limit_=10000;
   std::vector<std::array<int,3>> initial_triangles_;
   bool prove_mode_ = false, show_easy_ = false;
-  bool auto_line_circle_=false;
+  bool auto_line_circle_=true;
   std::size_t circle_budget_ = 25000000;
   std::size_t max_points_=0;
-  std::uint64_t seed_;
-  std::mt19937_64 rng_;
+  std::size_t automatic_serial_=0;
+  std::uint64_t seed_,generation_seed_;
+  std::mt19937_64 rng_,generation_rng_;
 
   static bool is_construction(const std::string&op){
     static const std::set<std::string> operations{
@@ -399,17 +403,20 @@ class Engine {
     if(max_points_&&points_.size()>=max_points_)
       throw std::runtime_error("configuration exceeds option max_points");
     point_id_[p.name] = static_cast<int>(points_.size()); points_.push_back(std::move(p));
+    point_depth_.push_back(0);
     return true;
   }
   int add_line(Line l) {
     if (line_id_.count(l.name)) throw std::runtime_error("duplicate line: " + l.name);
     int id = static_cast<int>(lines_.size()); line_id_[l.name] = id; lines_.push_back(std::move(l));
+    line_depth_.push_back(0);
     line_points_.emplace_back();direction_parent_.push_back(id);
     direction_rank_.push_back(0);direction_parity_.push_back(0);return id;
   }
   void add_circle(Circle c) {
     if (circle_id_.count(c.name)) throw std::runtime_error("duplicate circle: " + c.name);
     circle_id_[c.name] = static_cast<int>(circles_.size()); circles_.push_back(std::move(c));
+    circle_depth_.push_back(0);
     circle_points_.emplace_back();
   }
   int segment(int a, int b) {
@@ -671,7 +678,7 @@ class Engine {
     else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);if(!add_point(intersect(lines_[a],lines_[b],t[1],op)))return;int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
     else if(op=="circumcenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);if(!add_point(circumcenter(points_[a],points_[b],points_[c],t[1],op)))return;int o=pid(t[1]);equal_length(o,a,o,b,"circumcenter radii");equal_length(o,a,o,c,"circumcenter radii");equal_length(o,b,o,c,"circumcenter radii");circumcenter_angle_fact(o,a,b,c,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,b,c,a,"circumcenter angle theorem at "+t[1]);circumcenter_angle_fact(o,c,a,b,"circumcenter angle theorem at "+t[1]);circumcenter_facts_.push_back({o,a,b,c});}
     else if(op=="orthocenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Line bc=through("",points_[b],points_[c],""),ac=through("",points_[a],points_[c],"");Line ha{"",bc.b,-bc.a,-bc.b*points_[a].x+bc.a*points_[a].y,""},hb{"",ac.b,-ac.a,-ac.b*points_[b].x+ac.a*points_[b].y,""};if(!add_point(intersect(ha,hb,t[1],op)))return;int h=pid(t[1]);perpendicular_fact(segment(a,h),segment(b,c),"orthocenter altitude 1 "+t[1]);perpendicular_fact(segment(b,h),segment(a,c),"orthocenter altitude 2 "+t[1]);perpendicular_fact(segment(c,h),segment(a,b),"orthocenter closure "+t[1]);orthocenter_facts_.push_back({h,a,b,c});}
-    else if(op=="incenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double la=std::sqrt(dist2(points_[b],points_[c])),lb=std::sqrt(dist2(points_[a],points_[c])),lc=std::sqrt(dist2(points_[a],points_[b])),s=la+lb+lc;if(!add_point({t[1],(la*points_[a].x+lb*points_[b].x+lc*points_[c].x)/s,(la*points_[a].y+lb*points_[b].y+lc*points_[c].y)/s,op}))return;int i=pid(t[1]);angles_.add(equation({{segment(a,i),2},{segment(a,b),-1},{segment(a,c),-1}}),0,1,"incenter bisector at "+t[2]);angles_.add(equation({{segment(b,i),2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"incenter bisector at "+t[3]);angles_.add(equation({{segment(c,i),2},{segment(a,c),-1},{segment(b,c),-1}}),0,1,"incenter closure at "+t[4]);}
+    else if(op=="incenter"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double la=std::sqrt(dist2(points_[b],points_[c])),lb=std::sqrt(dist2(points_[a],points_[c])),lc=std::sqrt(dist2(points_[a],points_[b])),s=la+lb+lc;if(!add_point({t[1],(la*points_[a].x+lb*points_[b].x+lc*points_[c].x)/s,(la*points_[a].y+lb*points_[b].y+lc*points_[c].y)/s,op}))return;int i=pid(t[1]);angles_.add(equation({{segment(a,i),2},{segment(a,b),-1},{segment(a,c),-1}}),0,1,"incenter bisector at "+t[2]);angles_.add(equation({{segment(b,i),2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"incenter bisector at "+t[3]);angles_.add(equation({{segment(c,i),2},{segment(a,c),-1},{segment(b,c),-1}}),0,1,"incenter closure at "+t[4]);incenter_facts_.push_back({i,a,b,c});}
     else if(op=="circle"){need(4);int o=pid(t[2]),p=pid(t[3]);add_circle({t[1],points_[o],dist2(points_[o],points_[p]),op});circle_incidence(p,cid(t[1]));}
     else if(op=="circumcircle"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Point o=circumcenter(points_[a],points_[b],points_[c],"@"+t[1],op);add_circle({t[1],o,dist2(o,points_[a]),op});int z=cid(t[1]);circle_incidence(a,z);circle_incidence(b,z);circle_incidence(c,z);}
     else if(op=="incircle"){need(6);int i=pid(t[2]),a=pid(t[3]),b=pid(t[4]),c=pid(t[5]);Line ab=through("",points_[a],points_[b],"");long double r=ab.a*points_[i].x+ab.b*points_[i].y+ab.c;add_circle({t[1],points_[i],r*r,op});(void)c;}
@@ -761,48 +768,165 @@ class Engine {
     }
   }
 
+  std::string automatic_name(const std::string&prefix){
+    return prefix+"$"+std::to_string(automatic_serial_++);
+  }
+  template<class Depths>
+  int depth_weighted_pick(const std::vector<int>&items,const Depths&depths){
+    if(items.empty())return -1;
+    std::vector<double> weights;weights.reserve(items.size());
+    for(int id:items){double d=1.0+static_cast<double>(depths[static_cast<std::size_t>(id)]);weights.push_back(1.0/(d*d));}
+    std::discrete_distribution<std::size_t> choose(weights.begin(),weights.end());
+    return items[choose(generation_rng_)];
+  }
+  int random_point(){
+    std::vector<int> ids(points_.size());std::iota(ids.begin(),ids.end(),0);
+    return depth_weighted_pick(ids,point_depth_);
+  }
+  std::vector<int> random_distinct_points(std::size_t count,bool noncollinear=false){
+    if(points_.size()<count)return {};
+    for(int attempt=0;attempt<64;++attempt){
+      std::vector<int> available(points_.size());std::iota(available.begin(),available.end(),0);std::vector<int> out;
+      while(out.size()<count){int p=depth_weighted_pick(available,point_depth_);out.push_back(p);available.erase(std::find(available.begin(),available.end(),p));}
+      if(!noncollinear||count<3||std::fabs(cross(points_[out[0]],points_[out[1]],points_[out[2]]))>
+          EPS*scale(points_[out[0]],points_[out[1]],points_[out[2]]))return out;
+    }
+    return {};
+  }
+  std::vector<int> named_lines()const{
+    std::vector<int> out;for(std::size_t i=0;i<lines_.size();++i)
+      if(lines_[i].origin!="segment"&&!lines_[i].name.empty()&&lines_[i].name[0]!='@')out.push_back(static_cast<int>(i));
+    return out;
+  }
+  std::vector<int> named_circles()const{
+    std::vector<int> out;for(std::size_t i=0;i<circles_.size();++i)
+      if(!circles_[i].name.empty()&&circles_[i].name[0]!='@')out.push_back(static_cast<int>(i));
+    return out;
+  }
+  int create_random_line(){
+    if(points_.size()<2)return -1;
+    for(int attempt=0;attempt<64;++attempt){
+      int kind=std::uniform_int_distribution<int>(0,4)(generation_rng_);
+      auto pair=random_distinct_points(2);if(pair.empty())return -1;
+      std::string name;int depth=1+std::max(point_depth_[pair[0]],point_depth_[pair[1]]);
+      if(kind==0){name=automatic_name("L");execute({"line",name,points_[pair[0]].name,points_[pair[1]].name},0);}
+      else if(kind==1){name=automatic_name("PB");execute({"perp_bisector",name,points_[pair[0]].name,points_[pair[1]].name},0);}
+      else if(kind==2||kind==3){
+        auto pool=named_lines();if(pool.empty()){kind=0;name=automatic_name("L");execute({"line",name,points_[pair[0]].name,points_[pair[1]].name},0);}
+        else {int base=depth_weighted_pick(pool,line_depth_);int p=random_point();depth=1+std::max(point_depth_[p],line_depth_[base]);
+          name=automatic_name(kind==2?"Par":"Perp");execute({kind==2?"parallel":"perpendicular",name,points_[p].name,lines_[base].name},0);}
+      } else {
+        auto triple=random_distinct_points(3,true);if(triple.empty())continue;
+        depth=1+std::max({point_depth_[triple[0]],point_depth_[triple[1]],point_depth_[triple[2]]});
+        name=automatic_name("Bis");execute({"angle_bisector",name,points_[triple[0]].name,points_[triple[1]].name,points_[triple[2]].name},0);
+      }
+      int id=lid(name);line_depth_[static_cast<std::size_t>(id)]=depth;return id;
+    }
+    return -1;
+  }
+  int create_random_circle(){
+    if(points_.size()<2)return -1;
+    for(int attempt=0;attempt<64;++attempt){
+      int kind=std::uniform_int_distribution<int>(0,2)(generation_rng_);
+      std::string name;int depth=0;
+      if(kind==1){
+        auto triple=random_distinct_points(3,true);if(triple.empty())continue;
+        depth=1+std::max({point_depth_[triple[0]],point_depth_[triple[1]],point_depth_[triple[2]]});
+        name=automatic_name("Circ");execute({"circumcircle",name,points_[triple[0]].name,points_[triple[1]].name,points_[triple[2]].name},0);
+      } else if(kind==0||incenter_facts_.empty()) {
+        auto pair=random_distinct_points(2);int o=pair[0],p=pair[1];depth=1+std::max(point_depth_[o],point_depth_[p]);
+        name=automatic_name("Circle");execute({"circle",name,points_[o].name,points_[p].name},0);
+      } else {
+        const auto&f=incenter_facts_[std::uniform_int_distribution<std::size_t>(0,incenter_facts_.size()-1)(generation_rng_)];
+        depth=1+std::max({point_depth_[f.center],point_depth_[f.a],point_depth_[f.b],point_depth_[f.c]});
+        name=automatic_name("Inc");execute({"incircle",name,points_[f.center].name,points_[f.a].name,points_[f.b].name,points_[f.c].name},0);
+      }
+      int id=cid(name);circle_depth_[static_cast<std::size_t>(id)]=depth;return id;
+    }
+    return -1;
+  }
+  bool create_random_point(){
+    if(points_.size()<2)return false;
+    int kind=std::uniform_int_distribution<int>(0,9)(generation_rng_);
+    std::size_t before=points_.size();std::string name;
+    auto finish=[&](int depth){if(points_.size()>before)point_depth_[static_cast<std::size_t>(pid(name))]=depth;return points_.size()>before;};
+    if(kind==0||kind==1){
+      auto pair=random_distinct_points(2);if(pair.empty())return false;int depth=1+std::max(point_depth_[pair[0]],point_depth_[pair[1]]);
+      name=automatic_name(kind==0?"M":"Rp");execute({kind==0?"midpoint":"reflection_point",name,points_[pair[0]].name,points_[pair[1]].name},0);return finish(depth);
+    }
+    if(kind>=2&&kind<=4){
+      auto triple=random_distinct_points(3,true);if(triple.empty())return false;
+      int depth=1+std::max({point_depth_[triple[0]],point_depth_[triple[1]],point_depth_[triple[2]]});
+      const char*op=kind==2?"circumcenter":kind==3?"orthocenter":"incenter";
+      name=automatic_name(kind==2?"O":kind==3?"H":"I");execute({op,name,points_[triple[0]].name,points_[triple[1]].name,points_[triple[2]].name},0);return finish(depth);
+    }
+    if(kind==5||kind==6){
+      auto pool=named_lines();if(pool.empty())create_random_line();pool=named_lines();if(pool.empty())return false;
+      int p=random_point(),line=depth_weighted_pick(pool,line_depth_);int depth=1+std::max(point_depth_[p],line_depth_[line]);
+      name=automatic_name(kind==5?"Rl":"Foot");execute({kind==5?"reflection_line":"foot",name,points_[p].name,lines_[line].name},0);return finish(depth);
+    }
+    if(kind==7){
+      if(named_lines().size()<2){create_random_line();create_random_line();}
+      for(int attempt=0;attempt<32;++attempt){auto pool=named_lines();if(pool.size()<2)return false;
+        int a=depth_weighted_pick(pool,line_depth_),b=depth_weighted_pick(pool,line_depth_);if(a==b)continue;
+        if(std::fabs(lines_[a].a*lines_[b].b-lines_[b].a*lines_[a].b)<=EPS)continue;
+        int depth=1+std::max(line_depth_[a],line_depth_[b]);name=automatic_name("Xll");
+        execute({"intersection_ll",name,lines_[a].name,lines_[b].name},0);return finish(depth);
+      }return false;
+    }
+    if(kind==8){
+      if(!auto_line_circle_)return false;
+      auto line_pool=named_lines();if(line_pool.empty()){create_random_line();line_pool=named_lines();}if(line_pool.empty())return false;
+      for(int attempt=0;attempt<32;++attempt){int line=depth_weighted_pick(line_pool,line_depth_);const auto&on=line_points_[line];if(on.empty())continue;
+        int k=on[std::uniform_int_distribution<std::size_t>(0,on.size()-1)(generation_rng_)],o=random_point();if(o==k)continue;
+        std::string circle_name=automatic_name("Circle");int circle_depth=1+std::max(point_depth_[o],point_depth_[k]);
+        execute({"circle",circle_name,points_[o].name,points_[k].name},0);int circle=cid(circle_name);circle_depth_[circle]=circle_depth;
+        const auto&ln=lines_[line];const auto&cc=circles_[circle];long double dx=ln.b,dy=-ln.a;
+        if(std::fabs(-2*dot(points_[k].x-cc.center.x,points_[k].y-cc.center.y,dx,dy))<=EPS)continue;
+        int depth=1+std::max(line_depth_[line],circle_depth_[circle]);name=automatic_name("Xlc");
+        execute({"intersection_lc_known",name,lines_[line].name,circles_[circle].name,points_[k].name},0);return finish(depth);
+      }return false;
+    }
+    if(!auto_line_circle_)return false;
+    for(int attempt=0;attempt<32;++attempt){
+      int k=random_point(),o1=random_point(),o2=random_point();if(k==o1||k==o2||o1==o2)continue;
+      if(std::fabs(cross(points_[o1],points_[k],points_[o2]))<=EPS*scale(points_[o1],points_[k],points_[o2]))continue;
+      std::string c1_name=automatic_name("Circle"),c2_name=automatic_name("Circle");
+      execute({"circle",c1_name,points_[o1].name,points_[k].name},0);execute({"circle",c2_name,points_[o2].name,points_[k].name},0);
+      int c1=cid(c1_name),c2=cid(c2_name);circle_depth_[c1]=1+std::max(point_depth_[o1],point_depth_[k]);circle_depth_[c2]=1+std::max(point_depth_[o2],point_depth_[k]);
+      int depth=1+std::max(circle_depth_[c1],circle_depth_[c2]);name=automatic_name("Xcc");
+      execute({"intersection_cc_known",name,circles_[c1].name,circles_[c2].name,points_[k].name},0);return finish(depth);
+    }
+    return false;
+  }
   void expand_points(){
     auto room=[&]{return !max_points_||points_.size()<max_points_;};
-    if(auto_line_circle_){
+    // Without a point cap, retain the finite known-root scan for explicitly
+    // supplied lines and circles. With a cap, known-root intersections join the
+    // randomized construction mix below.
+    if(auto_line_circle_&&!max_points_){
       std::size_t line_count=lines_.size(),circle_count=circles_.size();
-      for(std::size_t l=0;l<line_count&&room();++l){
-        if(lines_[l].origin=="segment")continue;
-        for(std::size_t c=0;c<circle_count&&room();++c){
-          auto on_line=line_points_[l],on_circle=circle_points_[c];
-          for(int k:on_line)if(room()&&std::find(on_circle.begin(),on_circle.end(),k)!=on_circle.end()){
+      for(std::size_t l=0;l<line_count;++l){if(lines_[l].origin=="segment")continue;
+        for(std::size_t c=0;c<circle_count;++c){auto on_line=line_points_[l],on_circle=circle_points_[c];
+          for(int k:on_line)if(std::find(on_circle.begin(),on_circle.end(),k)!=on_circle.end()){
             const auto&ln=lines_[l];const auto&cc=circles_[c];long double dx=ln.b,dy=-ln.a;
             if(std::fabs(-2*dot(points_[k].x-cc.center.x,points_[k].y-cc.center.y,dx,dy))<=EPS)continue;
             std::string name="X("+lines_[l].name+","+circles_[c].name+","+points_[k].name+")";
             if(!point_id_.count(name))execute({"intersection_lc_known",name,lines_[l].name,circles_[c].name,points_[k].name},0);
-          }
-        }
-      }
+          }}
+      }return;
     }
-    if(!max_points_||points_.size()>=max_points_)return;
-    while(points_.size()<max_points_){
-      std::size_t before=points_.size(),n=before;
-      // Centers are tried before midpoints so small targets get a varied set of
-      // standard Olympiad constructions rather than only affine points.
-      for(std::size_t a=0;a<n&&points_.size()<max_points_;++a)
-        for(std::size_t b=a+1;b<n&&points_.size()<max_points_;++b)
-          for(std::size_t c=b+1;c<n&&points_.size()<max_points_;++c){
-            if(std::fabs(cross(points_[a],points_[b],points_[c]))<=
-               EPS*scale(points_[a],points_[b],points_[c]))continue;
-            for(const char* raw_op:{"circumcenter","orthocenter"}){
-              if(points_.size()>=max_points_)break;
-              std::string op=raw_op;
-              std::string name=(op=="circumcenter"?"O(":"H(")+points_[a].name+","+points_[b].name+","+points_[c].name+")";
-              if(point_id_.count(name))continue;
-              execute({op,name,points_[a].name,points_[b].name,points_[c].name},0);
-            }
-          }
-      for(std::size_t a=0;a<n&&points_.size()<max_points_;++a)
-        for(std::size_t b=a+1;b<n&&points_.size()<max_points_;++b){
-          std::string name="M("+points_[a].name+","+points_[b].name+")";
-          if(!point_id_.count(name))execute({"midpoint",name,points_[a].name,points_[b].name},0);
-        }
-      if(points_.size()==before)break;
+    if(!max_points_||!room())return;
+    std::size_t failed=0,max_failed=std::max<std::size_t>(2000,100*max_points_);
+    while(room()&&failed<max_failed){
+      // Auxiliary constructions are deliberately interleaved. They make line
+      // intersections and known-root circle intersections available without
+      // letting the supporting-object count grow independently of the point cap.
+      if(named_lines().size()<2||std::uniform_int_distribution<int>(0,3)(generation_rng_)==0)create_random_line();
+      if(named_circles().empty()||std::uniform_int_distribution<int>(0,7)(generation_rng_)==0)create_random_circle();
+      if(create_random_point())failed=0;else ++failed;
     }
+    if(room())std::cerr<<"warning: random construction search exhausted at "<<points_.size()<<" of "<<max_points_<<" points\n";
   }
 
   static long long quant(long double x, long double step=1e-8L) { return std::llround(x/step); }
@@ -849,7 +973,7 @@ class Engine {
       if(selected.insert(it->second).second)
         for(auto input:command_inputs(construction_commands_[it->second]))todo.push_back(std::move(input));
     }
-    Engine sub(seed_);sub.record_commands_=false;sub.angles_.set_coefficient_limit(angle_coefficient_limit_);
+    Engine sub(seed_,generation_seed_);sub.record_commands_=false;sub.angles_.set_coefficient_limit(angle_coefficient_limit_);
     for(std::size_t command:selected)sub.execute(construction_commands_[command],0);
     sub.geometry_closure();std::vector<int> local;local.reserve(candidate.size());
     for(int p:candidate)local.push_back(sub.pid(points_[static_cast<std::size_t>(p)].name));
@@ -867,7 +991,8 @@ class Engine {
     }catch(const std::exception&e){std::cout<<"ERROR goal: "<<e.what()<<"\n";}}}
 
  public:
-  explicit Engine(std::uint64_t seed):seed_(seed),rng_(seed){}
+  explicit Engine(std::uint64_t seed,std::uint64_t generation_seed):
+    seed_(seed),generation_seed_(generation_seed),rng_(seed),generation_rng_(generation_seed){}
   void parse(std::istream& in) {std::string line;int no=0;while(std::getline(in,line)){++no;auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);std::istringstream ss(line);std::vector<std::string>t;std::string x;while(ss>>x)t.push_back(x);if(t.empty())continue;try{execute(t,no);}catch(const std::exception&e){throw std::runtime_error("line "+std::to_string(no)+": "+e.what());}}}
   void report(bool classify=true){
     expand_points();
@@ -917,8 +1042,9 @@ RunSettings read_settings(const std::string& input) {
   return s;
 }
 
-std::string execute_once(const std::string& input,std::uint64_t seed,bool classify=true) {
-  geogen::Engine e(seed);std::istringstream in(input);e.parse(in);
+std::string execute_once(const std::string& input,std::uint64_t seed,
+                         std::uint64_t generation_seed,bool classify=true) {
+  geogen::Engine e(seed,generation_seed);std::istringstream in(input);e.parse(in);
   std::ostringstream captured;auto* old=std::cout.rdbuf(captured.rdbuf());
   try{e.report(classify);std::cout.rdbuf(old);}catch(...){std::cout.rdbuf(old);throw;}
   return captured.str();
@@ -946,12 +1072,12 @@ int main(int argc,char**argv){try{
   if(argc==2){std::ifstream f(argv[1]);if(!f)throw std::runtime_error("cannot open input file");input.assign(std::istreambuf_iterator<char>(f),{});}
   else input.assign(std::istreambuf_iterator<char>(std::cin),{});
   RunSettings settings=read_settings(input);
-  if(settings.prove){std::cout<<execute_once(input,settings.seed);return 0;}
+  if(settings.prove){std::cout<<execute_once(input,settings.seed,settings.seed);return 0;}
   std::set<std::string> common;
   std::vector<std::string> common_points;
   for(int trial=0;trial<settings.trials;++trial){
     std::uint64_t trial_seed=settings.seed+0x9e3779b97f4a7c15ULL*static_cast<std::uint64_t>(trial+1);
-    std::string report=execute_once(input,trial_seed,trial==0);
+    std::string report=execute_once(input,trial_seed,settings.seed,trial==0);
     auto current=findings(report,settings.show_easy);auto current_points=point_listing(report);
     if(trial==0){common=std::move(current);common_points=std::move(current_points);}
     else {

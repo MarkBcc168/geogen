@@ -37,7 +37,7 @@ option circle_budget 25000000  # skip general scan above this many triples
 option trials 5                # independent random realizations in generate mode
 option seed 20260828            # reproducible pseudorandom seed
 option max_points 30            # automatically expand to at most 30 points
-option line_circle_intersections 1 # generate quadratic-free second intersections
+option line_circle_intersections 1 # default: enable known-root circle intersections
 option angle_coefficient_limit 10000 # maximum accepted proof coefficient
 option proof_scope ancestry     # prove each candidate from its definitions only
 
@@ -78,17 +78,34 @@ universal triangle configuration.
 
 ### Point generation and listing
 
-Without `max_points`, the configuration contains exactly the initial and explicit
-construction commands. Setting `option max_points N` enables automatic expansion.
-The generator repeatedly tries circumcenters, orthocenters, and midpoints in a
-stable symbolic order until it reaches `N` points (or exhausts applicable
-constructions). The limit includes initial and explicitly constructed points and
-may be set from 1 through 5000.
+Without `max_points`, the configuration contains the initial and explicit
+construction commands, plus the finite set of known-root line-circle
+intersections already present in that configuration. Setting `option max_points N`
+enables seeded random expansion until the configuration reaches `N` points (or
+the available construction search is exhausted). The limit includes initial and
+explicitly constructed points and may be set from 1 through 5000.
 
-`option line_circle_intersections 1` additionally scans every non-segment line and
-circle with a symbolically known common point. It constructs the other
-intersection before the ordinary point expansion. This pass also works without
-`max_points`; with a maximum, it respects the remaining point capacity.
+The random point-producing mix enables every implemented construction that does
+not require finding unknown quadratic roots:
+
+- midpoint, point reflection, line reflection, and perpendicular foot;
+- circumcenter, orthocenter, and incenter;
+- intersection of two nonparallel lines;
+- the second line-circle or circle-circle intersection when one intersection is
+  already known.
+
+Supporting objects are generated randomly as well. Lines may be defined by two
+points, as a perpendicular bisector or angle bisector, or as a parallel or
+perpendicular through a point. Circles may be center-radius circles,
+circumcircles, or incircles. These auxiliary objects are interleaved with point
+generation and bounded indirectly by the point cap.
+
+Input choices use weights `1/(depth+1)^2`, so initial and shallow points, lines,
+and circles are substantially more likely to be reused than deeply nested ones.
+The symbolic construction RNG uses `option seed` and is shared by all numerical
+trials; only the initial coordinates vary. Consequently every trial tests the
+same named construction graph. Set `option line_circle_intersections 0` to
+exclude both known-root circle-intersection methods.
 
 Every report lists the resulting points without trial-specific coordinates:
 

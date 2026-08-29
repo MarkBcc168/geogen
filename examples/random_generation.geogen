@@ -1,0 +1,6 @@
+# Seeded random expansion using every quadratic-free construction family.
+mode generate
+option trials 1
+option seed 20260829
+option max_points 100
+triangle A B C
