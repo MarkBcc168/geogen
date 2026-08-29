@@ -74,4 +74,8 @@ if(BUILD_TESTING)
   set_tests_properties(center_locus_collinearity_filter PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED collinear"
     FAIL_REGULAR_EXPRESSION "UNPROVED collinear")
+  add_test(NAME ancestry_scoped_filter
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/ancestry_scope.geogen)
+  set_tests_properties(ancestry_scoped_filter PROPERTIES
+    PASS_REGULAR_EXPRESSION "summary stable_coincidences=")
 endif()

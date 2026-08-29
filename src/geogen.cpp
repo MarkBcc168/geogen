@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <compare>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
@@ -298,6 +299,11 @@ struct PerpendicularBisectorFact {int line,a,b;};
 struct FootFact {int foot,source,line;};
 struct CircumcenterFact {int center,a,b,c;};
 struct OrthocenterFact {int center,a,b,c;};
+enum class ObjectKind {point,line,circle};
+struct ObjectRef {
+  ObjectKind kind;std::string name;
+  auto operator<=>(const ObjectRef&)const=default;
+};
 
 class Engine {
   std::vector<Point> points_;
@@ -319,12 +325,50 @@ class Engine {
   std::vector<CircumcenterFact> circumcenter_facts_;
   std::vector<OrthocenterFact> orthocenter_facts_;
   std::map<std::pair<int,int>,int> perpendicular_bisector_loci_;
+  std::vector<std::vector<std::string>> construction_commands_;
+  bool record_commands_=true,ancestry_scope_=false;
+  std::int64_t angle_coefficient_limit_=10000;
   std::vector<std::array<int,3>> initial_triangles_;
   bool prove_mode_ = false, show_easy_ = false;
   bool auto_line_circle_=false;
   std::size_t circle_budget_ = 25000000;
   std::size_t max_points_=0;
+  std::uint64_t seed_;
   std::mt19937_64 rng_;
+
+  static bool is_construction(const std::string&op){
+    static const std::set<std::string> operations{
+      "triangle","quadrilateral","cyclic_quad","point","line","midpoint",
+      "perp_bisector","parallel","perpendicular","angle_bisector",
+      "reflection_line","reflection_point","foot","intersection_ll",
+      "circumcenter","orthocenter","incenter","circle","circumcircle",
+      "incircle","intersection_lc_known","intersection_cc_known"};
+    return operations.count(op)!=0;
+  }
+  static std::vector<ObjectRef> command_outputs(const std::vector<std::string>&t){
+    const auto&op=t[0];std::vector<ObjectRef> out;
+    if(op=="triangle")for(int i=1;i<=3;++i)out.push_back({ObjectKind::point,t[static_cast<std::size_t>(i)]});
+    else if(op=="quadrilateral"||op=="cyclic_quad")for(int i=1;i<=4;++i)out.push_back({ObjectKind::point,t[static_cast<std::size_t>(i)]});
+    else if(op=="line"||op=="perp_bisector"||op=="parallel"||op=="perpendicular"||op=="angle_bisector")out.push_back({ObjectKind::line,t[1]});
+    else if(op=="circle"||op=="circumcircle"||op=="incircle")out.push_back({ObjectKind::circle,t[1]});
+    else out.push_back({ObjectKind::point,t[1]});
+    return out;
+  }
+  static std::vector<ObjectRef> command_inputs(const std::vector<std::string>&t){
+    const auto&op=t[0];std::vector<ObjectRef> in;
+    auto point=[&](std::size_t i){in.push_back({ObjectKind::point,t[i]});};
+    auto line=[&](std::size_t i){in.push_back({ObjectKind::line,t[i]});};
+    auto circle=[&](std::size_t i){in.push_back({ObjectKind::circle,t[i]});};
+    if(op=="line"||op=="midpoint"||op=="perp_bisector"||op=="reflection_point"){point(2);point(3);}
+    else if(op=="parallel"||op=="perpendicular"||op=="reflection_line"||op=="foot"){point(2);line(3);}
+    else if(op=="angle_bisector"||op=="circumcenter"||op=="orthocenter"||op=="incenter"||op=="circumcircle"){point(2);point(3);point(4);}
+    else if(op=="intersection_ll"){line(2);line(3);}
+    else if(op=="circle"){point(2);point(3);}
+    else if(op=="incircle"){point(2);point(3);point(4);point(5);}
+    else if(op=="intersection_lc_known"){line(2);circle(3);point(4);}
+    else if(op=="intersection_cc_known"){circle(2);circle(3);point(4);}
+    return in;
+  }
 
   long double random_real(long double lo, long double hi) {
     return std::uniform_real_distribution<long double>(lo, hi)(rng_);
@@ -609,8 +653,9 @@ class Engine {
   void execute(const std::vector<std::string>& t, int line_no) {
     auto need=[&](std::size_t n){if(t.size()!=n)throw std::runtime_error(t[0]+" expects "+std::to_string(n-1)+" arguments");};
     const auto& op=t[0];
+    if(record_commands_&&is_construction(op))construction_commands_.push_back(t);
     if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
-    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit")angles_.set_coefficient_limit(std::stoll(t[2]));else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit"){angle_coefficient_limit_=std::stoll(t[2]);angles_.set_coefficient_limit(angle_coefficient_limit_);}else if(t[1]=="proof_scope"){if(t[2]=="global")ancestry_scope_=false;else if(t[2]=="ancestry")ancestry_scope_=true;else throw std::runtime_error("option proof_scope is global or ancestry");}else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
     else if(op=="triangle") initial_triangle(t);
     else if(op=="quadrilateral") initial_quadrilateral(t,false);
     else if(op=="cyclic_quad") initial_quadrilateral(t,true);
@@ -790,6 +835,28 @@ class Engine {
 
   std::string point_list(const std::vector<int>& p) const {std::string s;for(std::size_t i=0;i<p.size();++i){if(i)s+=",";s+=points_[p[i]].name;}return s;}
   void print_proof(const std::string& label,const std::set<int>& w)const{std::cout<<"PROVED "<<label<<"\n";int step=1;for(auto&s:angles_.explain(w))std::cout<<"  "<<step++<<". "<<s<<"\n";if(step==1)std::cout<<"  1. direct known fact\n";}
+  bool ancestry_proves(const std::string&kind,const std::vector<int>&candidate)const{
+    std::map<ObjectRef,std::size_t> producer;
+    for(std::size_t i=0;i<construction_commands_.size();++i)
+      for(auto output:command_outputs(construction_commands_[i]))producer.emplace(std::move(output),i);
+    std::vector<ObjectRef> todo;todo.reserve(candidate.size());
+    for(int p:candidate)todo.push_back({ObjectKind::point,points_[static_cast<std::size_t>(p)].name});
+    std::set<ObjectRef> seen;std::set<std::size_t> selected;
+    while(!todo.empty()){
+      ObjectRef object=std::move(todo.back());todo.pop_back();if(!seen.insert(object).second)continue;
+      auto it=producer.find(object);if(it==producer.end())
+        throw std::runtime_error("missing construction definition for "+object.name);
+      if(selected.insert(it->second).second)
+        for(auto input:command_inputs(construction_commands_[it->second]))todo.push_back(std::move(input));
+    }
+    Engine sub(seed_);sub.record_commands_=false;sub.angles_.set_coefficient_limit(angle_coefficient_limit_);
+    for(std::size_t command:selected)sub.execute(construction_commands_[command],0);
+    sub.geometry_closure();std::vector<int> local;local.reserve(candidate.size());
+    for(int p:candidate)local.push_back(sub.pid(points_[static_cast<std::size_t>(p)].name));
+    if(kind=="collinear")return sub.proves_collinear(local);
+    if(kind=="concyclic")return sub.proves_cyclic(local);
+    throw std::runtime_error("ancestry scope supports collinear and concyclic candidates");
+  }
   void run_goals(){for(auto&g:goals_){try{std::set<int>w;bool ok=false;std::string label=g.kind+"(";for(std::size_t i=0;i<g.args.size();++i){if(i)label+=",";label+=g.args[i];}label+=")";
       if(g.kind=="collinear")ok=proves_collinear(names_to_points(g.args),&w);
       else if(g.kind=="concyclic")ok=proves_cyclic(names_to_points(g.args),&w);
@@ -800,7 +867,7 @@ class Engine {
     }catch(const std::exception&e){std::cout<<"ERROR goal: "<<e.what()<<"\n";}}}
 
  public:
-  explicit Engine(std::uint64_t seed):rng_(seed){}
+  explicit Engine(std::uint64_t seed):seed_(seed),rng_(seed){}
   void parse(std::istream& in) {std::string line;int no=0;while(std::getline(in,line)){++no;auto hash=line.find('#');if(hash!=std::string::npos)line.resize(hash);std::istringstream ss(line);std::vector<std::string>t;std::string x;while(ss>>x)t.push_back(x);if(t.empty())continue;try{execute(t,no);}catch(const std::exception&e){throw std::runtime_error("line "+std::to_string(no)+": "+e.what());}}}
   void report(bool classify=true){
     expand_points();
@@ -818,8 +885,8 @@ class Engine {
       return;
     }
     std::size_t easy=0,hard=0;
-    for(auto&x:ls){std::set<int>w;bool e=proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}
-    for(auto&x:circle_cache_){std::set<int>w;bool e=proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}
+    for(auto&x:ls){std::set<int>w;bool e=ancestry_scope_?ancestry_proves("collinear",x.points):proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}
+    for(auto&x:circle_cache_){std::set<int>w;bool e=ancestry_scope_?ancestry_proves("concyclic",x.points):proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}
     std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";
   }
 };

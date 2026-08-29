@@ -39,6 +39,7 @@ option seed 20260828            # reproducible pseudorandom seed
 option max_points 30            # automatically expand to at most 30 points
 option line_circle_intersections 1 # generate quadratic-free second intersections
 option angle_coefficient_limit 10000 # maximum accepted proof coefficient
+option proof_scope ancestry     # prove each candidate from its definitions only
 
 triangle A B C
 quadrilateral A B C D
@@ -60,6 +61,16 @@ random realizations, so generation mode classifies coincidences during the first
 trial only. Later trials perform the numerical construction and coincidence
 scans, then intersect their findings with that classified set. This preserves
 the output while avoiding repeated angle-lattice proofs.
+
+By default, `option proof_scope global` lets the filter use every constructed
+point, matching the traditional full-configuration prover. The conservative
+`option proof_scope ancestry` rebuilds a separate subconfiguration for each
+detected coincidence. It recursively retains only the points in the statement,
+their defining point/line/circle constructions, and the initial configuration
+commands needed by those definitions. Unrelated generated auxiliary points are
+therefore unavailable to its proof. This mode is intentionally conservative and
+may leave more coincidences unproved; it never promotes an unproved global
+candidate to an easy one merely from numerical incidence.
 
 The advanced `point P x y` command remains available for diagnostics, but a
 fixed-coordinate point changes the problem and should not normally be used in a
