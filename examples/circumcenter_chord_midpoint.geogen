@@ -1,0 +1,7 @@
+# The perpendicular foot from a circumcenter to a chord is its midpoint.
+mode prove
+triangle A B C
+line AB A B
+circumcenter O A B C
+foot M O AB
+prove_equal_distance A M M B

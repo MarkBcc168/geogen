@@ -238,10 +238,25 @@ successful angular proof lists the construction/theorem facts used. See
   side-midpoint/altitude-foot configuration invokes the nine-point-circle rule.
 - A point reflection `C = reflect(A,B)` registers `B` as the midpoint of `AC`.
   Whenever one point is the midpoint of both `AB` and `CD`, the parallelogram
-  closure adds `AC || BD` and `AD || BC`.
+  closure adds `AC || BD` and `AD || BC`. Conversely, the certified intersection
+  of `AB` with its perpendicular bisector is registered as the midpoint of `AB`;
+  this includes a circumcenter's perpendicular foot to a chord.
 - Every known equality `XA=XB` adds the undivided isosceles relation
   `angle(XA)+angle(XB)=2*angle(AB)`. This retains integer coefficients and lets
-  circumcenter-radius facts participate in the full angle chase.
+  circumcenter-radius facts participate in the full angle chase. Conversely, a
+  proved base-angle relation of this form registers `XA=XB`.
+- Definition-certified line carriers sharing two points, or sharing one point
+  with a known parallel direction, are merged. Circles sharing three certified
+  points are merged likewise. Thus every line-line, known-root line-circle, and
+  known-root circle-circle intersection immediately inherits all corresponding
+  collinear and cyclic incidences, even in a large maximal set.
+- Feet from an incenter to adjacent sidelines add equal inradii and equal tangent
+  lengths from the shared vertex. Equal-length classes are closed transitively
+  before all orientations of the isosceles and kite rules are applied.
+- If `A,B,C,D` are cyclic and a point `O` has three known equal distances to
+  members of the quadruple, the fourth radius is registered as equal. Named
+  centers of constructed circles also contribute equal-radius facts for every
+  point constructed on that circle.
 - A constructed circumcenter also adds all cyclic forms of
   `angle(ACB)+angle(OAB)=90 degrees`. This resolves the factor-of-two ambiguity
   that equal-radius isosceles relations alone cannot remove modulo 180 degrees.

@@ -1,0 +1,12 @@
+# Adjacent feet from an incenter are the two tangency points from their vertex.
+mode prove
+triangle A B C
+incenter I A B C
+line AB A B
+line AC A C
+foot E I AC
+foot F I AB
+prove_equal_distance A E A F
+prove_equal_distance I E I F
+prove_perpendicular A I E F
+prove_concyclic A E I F

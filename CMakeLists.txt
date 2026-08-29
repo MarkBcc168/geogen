@@ -114,4 +114,32 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/parallelogram_reflection.geogen)
   set_tests_properties(point_reflection_midpoint_cyclic PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED concyclic.B,H,C,D")
+  add_test(NAME definition_line_incidences
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/definition_incidences.geogen)
+  set_tests_properties(definition_line_incidences PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear.A,M,D")
+  add_test(NAME definition_circle_incidences
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/definition_incidences.geogen)
+  set_tests_properties(definition_circle_incidences PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,D")
+  add_test(NAME incenter_foot_equal_tangents
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/incenter_kite.geogen)
+  set_tests_properties(incenter_foot_equal_tangents PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED equal_distance.A,E,A,F")
+  add_test(NAME incenter_foot_kite
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/incenter_kite.geogen)
+  set_tests_properties(incenter_foot_kite PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED perpendicular.A,I,E,F")
+  add_test(NAME cyclic_radius_completion
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/cyclic_radius_completion.geogen)
+  set_tests_properties(cyclic_radius_completion PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED equal_distance.O,A,O,D")
+  add_test(NAME maximal_definition_collinearity
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/maximal_definition_collinearity.geogen)
+  set_tests_properties(maximal_definition_collinearity PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear.A,B,F,P,Q,R,S,W")
+  add_test(NAME circumcenter_chord_midpoint
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_chord_midpoint.geogen)
+  set_tests_properties(circumcenter_chord_midpoint PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED equal_distance.A,M,M,B")
 endif()

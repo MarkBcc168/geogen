@@ -1,0 +1,9 @@
+# Known-root intersections inherit every line and circle incidence by definition.
+mode prove
+triangle A B C
+midpoint M B C
+line AM A M
+circumcircle omega A B C
+intersection_lc_known D AM omega A
+prove_collinear A M D
+prove_concyclic A B C D
