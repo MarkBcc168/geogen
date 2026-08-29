@@ -1,0 +1,16 @@
+mode prove
+triangle A B C
+incenter I A B C
+line BC B C
+line CA C A
+line AB A B
+foot D I BC
+foot E I CA
+foot F I AB
+line AI A I
+line DE D E
+intersection_ll X AI DE
+prove_concyclic B I D F
+prove_concyclic B I D X
+prove_concyclic B I X D F
+prove_perpendicular A X B X

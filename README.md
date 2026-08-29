@@ -164,6 +164,12 @@ circumcircle gamma A B C
 incircle inc I A B C
 ```
 
+The prover includes the general angle-defined kite congruence: if `AC`
+bisects both endpoint angles of quadrilateral `ABCD`, then it derives
+`AB = AD` and `CB = CD`. In particular, equal tangent lengths and equal
+inradii for feet from an incenter are consequences of this kite rule; they are
+not registered as a separate incenter-specific metric shortcut.
+
 The quadratic-free intersection commands require one already known root and
 return the other root:
 
@@ -250,9 +256,17 @@ successful angular proof lists the construction/theorem facts used. See
   points are merged likewise. Thus every line-line, known-root line-circle, and
   known-root circle-circle intersection immediately inherits all corresponding
   collinear and cyclic incidences, even in a large maximal set.
-- Feet from an incenter to adjacent sidelines add equal inradii and equal tangent
-  lengths from the shared vertex. Equal-length classes are closed transitively
-  before all orientations of the isosceles and kite rules are applied.
+- Feet from an incenter to adjacent sidelines obtain equal inradii and equal
+  tangent lengths through the general angle-defined kite rule. Equal-length
+  classes are closed transitively before all orientations of the isosceles and
+  metric kite rules are applied.
+- A constructed incenter contributes the three undivided internal-bisector
+  cross-angle sums. They resolve the internal/external branch that doubled
+  equations modulo 180 degrees deliberately cannot select. Consequently, the
+  ordinary angle chase proves the right-angles-on-an-incircle-chord result: if
+  `X = AI intersect DE` in the standard contact-triangle notation, it discovers
+  `B,I,X,D,F` on the circle with diameter `BI` and derives
+  `AX perpendicular BX` without constructing an auxiliary point.
 - If `A,B,C,D` are cyclic and a point `O` has three known equal distances to
   members of the quadruple, the fourth radius is registered as equal. Named
   centers of constructed circles also contribute equal-radius facts for every
