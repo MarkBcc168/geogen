@@ -1,0 +1,9 @@
+mode prove
+triangle A B C
+midpoint M A B
+midpoint N A C
+midpoint K B C
+line CM C M
+line BN B N
+intersection_ll G CM BN
+prove_collinear A K G

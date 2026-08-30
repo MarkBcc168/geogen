@@ -154,6 +154,22 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/stress_reflected_circumcircle.geogen)
   set_tests_properties(delayed_reflection_axis_incidence PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,D")
+  add_test(NAME affine_nested_reflections
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/affine_nested_reflections.geogen)
+  set_tests_properties(affine_nested_reflections PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear.C,R,M")
+  add_test(NAME affine_implicit_midpoint
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/affine_nested_reflections.geogen)
+  set_tests_properties(affine_implicit_midpoint PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED equal_distance.C,T,T,R")
+  add_test(NAME affine_facts_feed_angle_chase
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/affine_nested_reflections.geogen)
+  set_tests_properties(affine_facts_feed_angle_chase PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED parallel.T,N,R,A")
+  add_test(NAME affine_line_intersection
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/affine_median_intersection.geogen)
+  set_tests_properties(affine_line_intersection PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED collinear.A,K,G")
   add_test(NAME cyclic_radius_completion
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/cyclic_radius_completion.geogen)
   set_tests_properties(cyclic_radius_completion PROPERTIES

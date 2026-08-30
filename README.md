@@ -217,6 +217,14 @@ successful angular proof lists the construction/theorem facts used. See
 
 ## Search and filtering design
 
+- For configurations initialized by one free triangle, a small affine prover
+  tracks barycentric coordinates through midpoints, point reflections, ordinary
+  and parallel lines, and eligible line-line intersections. It registers
+  collinear groups, parallel carriers, and midpoint identities before the angle
+  closure runs, so those facts can trigger midline, parallelogram, cyclic, and
+  other downstream rules. Identities must agree over two independent prime
+  fields; metric constructions are intentionally left to the metric/angle layer.
+
 - Collinear sets are found by grouping normalized directions about each pivot.
   This takes `O(n^2 log n)` time and keeps only actual candidate groups.
 - Declared circles are scanned in `O(n)`. General concyclicity uses a fixed-anchor

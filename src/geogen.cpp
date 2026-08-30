@@ -24,6 +24,35 @@
 
 namespace geogen {
 
+struct AffineScalar {
+  static constexpr std::int64_t p1=1000000007,p2=1000000009;
+  std::int64_t a=0,b=0;
+  AffineScalar()=default;
+  AffineScalar(std::int64_t x):a((x%p1+p1)%p1),b((x%p2+p2)%p2){}
+  static std::int64_t power(std::int64_t x,std::int64_t n,std::int64_t p){std::int64_t r=1;while(n){if(n&1)r=r*x%p;x=x*x%p;n>>=1;}return r;}
+  AffineScalar inverse()const{if(a==0||b==0)throw std::runtime_error("singular affine field element");AffineScalar r;r.a=power(a,p1-2,p1);r.b=power(b,p2-2,p2);return r;}
+  friend AffineScalar operator+(AffineScalar x,AffineScalar y){AffineScalar r;r.a=(x.a+y.a)%p1;r.b=(x.b+y.b)%p2;return r;}
+  friend AffineScalar operator-(AffineScalar x,AffineScalar y){AffineScalar r;r.a=(x.a-y.a+p1)%p1;r.b=(x.b-y.b+p2)%p2;return r;}
+  friend AffineScalar operator*(AffineScalar x,AffineScalar y){AffineScalar r;r.a=x.a*y.a%p1;r.b=x.b*y.b%p2;return r;}
+  friend AffineScalar operator/(AffineScalar x,AffineScalar y){return x*y.inverse();}
+  auto operator<=>(const AffineScalar&)const=default;
+};
+using AffineVector = std::array<AffineScalar,3>;
+
+AffineVector affine_cross(const AffineVector&a,const AffineVector&b){
+  return {a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};
+}
+bool affine_zero(const AffineVector&a){return a[0]==AffineScalar(0)&&a[1]==AffineScalar(0)&&a[2]==AffineScalar(0);}
+AffineVector affine_normalize_projective(AffineVector a){
+  for(const auto&x:a)if(x.a!=0&&x.b!=0){AffineScalar pivot=x;for(auto&y:a)y=y/pivot;return a;}
+  return {AffineScalar(0),AffineScalar(0),AffineScalar(0)};
+}
+std::optional<AffineVector> affine_normalize_point(AffineVector a){
+  AffineScalar sum=a[0]+a[1]+a[2];if(sum.a==0||sum.b==0)return std::nullopt;
+  for(auto&x:a)x=x/sum;
+  return a;
+}
+
 constexpr long double EPS = 1e-9L;
 constexpr long double PI = 3.141592653589793238462643383279502884L;
 
@@ -778,9 +807,63 @@ class Engine {
     for(std::size_t c=0;c<circle_points_.size();++c){int root=circle_find(static_cast<int>(c));circle_points_[c].assign(component_circle_points[root].begin(),component_circle_points[root].end());if(auto it=component_center.find(root);it!=component_center.end())circle_center_ids_[c]=it->second;}
   }
 
+  void register_affine_facts(){
+    // Use two-field barycentric coordinates only when the initial configuration is
+    // one free triangle. A generic quadrilateral has a fourth independent
+    // coordinate choice which this deliberately small affine layer does not
+    // attempt to encode.
+    int triangle_commands=0;std::vector<std::string> initial;
+    for(const auto&t:construction_commands_){if(t[0]=="triangle"){++triangle_commands;initial=t;}
+      else if(t[0]=="quadrilateral"||t[0]=="cyclic_quad"||t[0]=="point")return;}
+    if(triangle_commands!=1||initial.size()!=4)return;
+
+    std::vector<std::optional<AffineVector>> point(points_.size());
+    std::vector<std::optional<AffineVector>> line(lines_.size());
+    point[static_cast<std::size_t>(pid(initial[1]))]=AffineVector{AffineScalar(1),AffineScalar(0),AffineScalar(0)};
+    point[static_cast<std::size_t>(pid(initial[2]))]=AffineVector{AffineScalar(0),AffineScalar(1),AffineScalar(0)};
+    point[static_cast<std::size_t>(pid(initial[3]))]=AffineVector{AffineScalar(0),AffineScalar(0),AffineScalar(1)};
+    auto assign_point=[&](const std::string&name,const std::optional<AffineVector>&value){if(!value)return;int id=pid(name);if(!point[static_cast<std::size_t>(id)])point[static_cast<std::size_t>(id)]=*value;};
+    auto assign_line=[&](const std::string&name,const std::optional<AffineVector>&value){if(!value)return;int id=lid(name);if(static_cast<std::size_t>(id)>=line.size())line.resize(lines_.size());if(!line[static_cast<std::size_t>(id)])line[static_cast<std::size_t>(id)]=affine_normalize_projective(*value);};
+    auto point_value=[&](const std::string&name)->std::optional<AffineVector>{return point[static_cast<std::size_t>(pid(name))];};
+    auto line_value=[&](const std::string&name)->std::optional<AffineVector>{int id=lid(name);if(static_cast<std::size_t>(id)>=line.size())return std::nullopt;return line[static_cast<std::size_t>(id)];};
+
+    const AffineVector infinity{AffineScalar(1),AffineScalar(1),AffineScalar(1)};
+    for(const auto&t:construction_commands_){const auto&op=t[0];
+      if(op=="line"){auto a=point_value(t[2]),b=point_value(t[3]);if(a&&b){auto l=affine_cross(*a,*b);if(!affine_zero(l))assign_line(t[1],l);}}
+      else if(op=="midpoint"){auto a=point_value(t[2]),b=point_value(t[3]);if(a&&b){AffineVector m;for(int i=0;i<3;++i)m[static_cast<std::size_t>(i)]=((*a)[static_cast<std::size_t>(i)]+(*b)[static_cast<std::size_t>(i)])/2;assign_point(t[1],m);}}
+      else if(op=="reflection_point"){auto p=point_value(t[2]),o=point_value(t[3]);if(p&&o){AffineVector x;for(int i=0;i<3;++i)x[static_cast<std::size_t>(i)]=2*(*o)[static_cast<std::size_t>(i)]-(*p)[static_cast<std::size_t>(i)];assign_point(t[1],x);}}
+      else if(op=="parallel"){auto p=point_value(t[2]),base=line_value(t[3]);if(p&&base){auto direction=affine_cross(*base,infinity);auto l=affine_cross(*p,direction);if(!affine_zero(l))assign_line(t[1],l);}}
+      else if(op=="intersection_ll"){auto a=line_value(t[2]),b=line_value(t[3]);if(a&&b)assign_point(t[1],affine_normalize_point(affine_cross(*a,*b)));}
+    }
+
+    std::map<AffineVector,std::vector<int>> at;
+    std::vector<int> known_points;for(std::size_t i=0;i<point.size();++i)if(point[i]){known_points.push_back(static_cast<int>(i));at[*point[i]].push_back(static_cast<int>(i));}
+    // Discover every already constructed point which is the certified midpoint
+    // of two affine-known points. This includes nested midpoint/reflection
+    // identities not visible from the local construction that named the point.
+    for(std::size_t i=0;i<known_points.size();++i)for(std::size_t j=i+1;j<known_points.size();++j){int a=known_points[i],b=known_points[j];AffineVector m;
+      for(int k=0;k<3;++k)m[static_cast<std::size_t>(k)]=((*point[static_cast<std::size_t>(a)])[static_cast<std::size_t>(k)]+(*point[static_cast<std::size_t>(b)])[static_cast<std::size_t>(k)])/2;
+      auto found=at.find(m);if(found==at.end())continue;for(int center:found->second)if(center!=a&&center!=b){equal_length(a,center,center,b,"affine midpoint identity");register_midpoint_fact(center,a,b,"affine midpoint identity");inherit_collinearity(center,a,b,"affine midpoint incidence");}}
+
+    // Group affine-known points by certified carrier. Only groups of at least three
+    // add information; pair-only carriers are left unmaterialized.
+    std::map<AffineVector,std::set<int>> carriers;
+    for(std::size_t i=0;i<known_points.size();++i)for(std::size_t j=i+1;j<known_points.size();++j){int a=known_points[i],b=known_points[j];auto l=affine_cross(*point[static_cast<std::size_t>(a)],*point[static_cast<std::size_t>(b)]);if(!affine_zero(l)){l=affine_normalize_projective(std::move(l));carriers[l].insert(a);carriers[l].insert(b);}}
+    for(const auto&[_,on]:carriers)if(on.size()>=3){auto it=on.begin();int a=*it++,b=*it++;int carrier=segment(a,b);for(;it!=on.end();++it)incidence(*it,carrier,"affine collinearity certificate");}
+
+    // Recover equations for every existing carrier containing two known
+    // affine points, then register direction classes with the angle engine.
+    line.resize(lines_.size());
+    for(std::size_t l=0;l<line_points_.size();++l)if(!line[l]){std::vector<int> on;for(int p:line_points_[l])if(point[static_cast<std::size_t>(p)])on.push_back(p);if(on.size()>=2){auto value=affine_cross(*point[static_cast<std::size_t>(on[0])],*point[static_cast<std::size_t>(on[1])]);if(!affine_zero(value))line[l]=affine_normalize_projective(std::move(value));}}
+    std::map<AffineVector,std::vector<int>> directions;
+    for(std::size_t l=0;l<line.size();++l)if(line[l]){auto direction=affine_normalize_projective(affine_cross(*line[l],infinity));if(!affine_zero(direction))directions[direction].push_back(static_cast<int>(l));}
+    for(const auto&[_,same]:directions)if(same.size()>=2)for(std::size_t i=1;i<same.size();++i)parallel_fact(same[0],same[i],"affine parallelism certificate");
+  }
+
   void geometry_closure() {
     // Only declared construction incidences enter the proof layer. Numerical
     // discoveries remain conjectures and therefore cannot prove themselves.
+    register_affine_facts();
     normalize_definition_incidences();
     register_center_loci();
     normalize_definition_incidences();
@@ -1244,7 +1327,7 @@ class Engine {
       if(selected.insert(it->second).second)
         for(auto input:command_inputs(construction_commands_[it->second]))todo.push_back(std::move(input));
     }
-    Engine sub(seed_,generation_seed_);sub.record_commands_=false;sub.angles_.set_coefficient_limit(angle_coefficient_limit_);
+    Engine sub(seed_,generation_seed_);sub.record_commands_=true;sub.angles_.set_coefficient_limit(angle_coefficient_limit_);
     for(std::size_t command:selected)sub.execute(construction_commands_[command],0);
     sub.geometry_closure();std::vector<int> local;local.reserve(candidate.size());
     for(int p:candidate)local.push_back(sub.pid(points_[static_cast<std::size_t>(p)].name));
