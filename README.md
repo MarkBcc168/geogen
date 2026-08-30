@@ -279,6 +279,9 @@ successful angular proof lists the construction/theorem facts used. See
 - A line reflection records its full undivided direction identity at every
   certified point of the mirror. In particular, reflection across an angle
   bisector maps one sideline to the other without requiring angle division.
+  When the mirror is a perpendicular bisector, its defining endpoints are
+  treated as a reflected pair, so distances and line directions are transported
+  through the mirror without constructing additional image points.
   Reflection symmetry is also propagated to points attached to the mirror only
   during later theorem closure, such as a circumcenter on a perpendicular
   bisector.

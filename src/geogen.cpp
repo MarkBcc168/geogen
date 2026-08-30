@@ -891,6 +891,24 @@ class Engine {
         equal_length(axis_point,f.source,axis_point,f.image,"late reflection-axis equal distances");
         angles_.add(equation({{segment(axis_point,f.source),1},{segment(axis_point,f.image),1},{f.line,-2}}),0,1,"late line-reflection angle symmetry");
       }
+    // A perpendicular bisector is also the reflection axis exchanging its two
+    // defining endpoints. Transport both distances and line directions through
+    // that mirror. This is the ordinary reflection-isometry rule; it lets the
+    // angle chase handle a reflected point without constructing the reflected
+    // copies of every other point first.
+    for(const auto&f:line_reflection_facts_)for(const auto&pb:perpendicular_bisectors_)
+      if(f.line==pb.line){
+        if(f.image!=pb.a&&f.source!=pb.b)
+          equal_length(f.image,pb.a,f.source,pb.b,"reflection transports distance across perpendicular bisector");
+        if(f.image!=pb.b&&f.source!=pb.a)
+          equal_length(f.image,pb.b,f.source,pb.a,"reflection transports distance across perpendicular bisector");
+        if(f.source!=pb.a&&f.image!=pb.b)
+          angles_.add(equation({{segment(f.source,pb.a),1},{segment(f.image,pb.b),1},{f.line,-2}}),0,1,
+                      "reflection transports line across perpendicular bisector");
+        if(f.source!=pb.b&&f.image!=pb.a)
+          angles_.add(equation({{segment(f.source,pb.b),1},{segment(f.image,pb.a),1},{f.line,-2}}),0,1,
+                      "reflection transports line across perpendicular bisector");
+      }
     // The unique intersection of a segment carrier and its perpendicular
     // bisector is the segment midpoint. This includes the familiar fact that
     // the perpendicular foot from a circumcenter to a chord bisects the chord.
