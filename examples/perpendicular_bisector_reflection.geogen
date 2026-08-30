@@ -1,0 +1,14 @@
+mode prove
+triangle A B C
+reflection_point D A B
+reflection_point E A C
+circumcenter O1 D E A
+perp_bisector pBC B C
+reflection_line R1 A pBC
+perp_bisector pAB A B
+reflection_line R2 C pAB
+incenter I A B C
+circumcenter O2 B I C
+prove_concyclic A B C R1
+prove_concyclic A B C R2
+prove_concyclic A B C O1 R1 R2 O2

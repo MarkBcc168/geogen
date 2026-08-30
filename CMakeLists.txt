@@ -198,4 +198,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/incenter_side_circumcenter.geogen)
   set_tests_properties(incenter_side_circumcenter_circle PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,O")
+  add_test(NAME perpendicular_bisector_reflection_circle
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/perpendicular_bisector_reflection.geogen)
+  set_tests_properties(perpendicular_bisector_reflection_circle PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,O1,R1,R2,O2")
 endif()
