@@ -182,4 +182,20 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_chord_midpoint.geogen)
   set_tests_properties(circumcenter_chord_midpoint PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED equal_distance.A,M,M,B")
+  add_test(NAME coincident_lines_are_canonical
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/coincident_lines.geogen)
+  set_tests_properties(coincident_lines_are_canonical PROPERTIES
+    PASS_REGULAR_EXPRESSION "lines=3")
+  add_test(NAME coincident_line_output_uses_carrier
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/coincident_lines.geogen)
+  set_tests_properties(coincident_line_output_uses_carrier PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT X = foot.A,line.B,C")
+  add_test(NAME reflected_homothety_circumcenter_circle
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_reflection_homothety.geogen)
+  set_tests_properties(reflected_homothety_circumcenter_circle PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,O")
+  add_test(NAME incenter_side_circumcenter_circle
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/incenter_side_circumcenter.geogen)
+  set_tests_properties(incenter_side_circumcenter_circle PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,O")
 endif()

@@ -1,0 +1,5 @@
+mode prove
+triangle A B C
+incenter I A B C
+circumcenter O B I C
+prove_concyclic A B C O

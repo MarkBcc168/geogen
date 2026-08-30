@@ -1,0 +1,6 @@
+mode prove
+triangle A B C
+perp_bisector axis B C
+perpendicular BC2 C axis
+foot X A BC2
+prove_collinear B C X

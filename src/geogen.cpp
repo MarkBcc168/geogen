@@ -347,6 +347,7 @@ class Engine {
   std::vector<int> circle_center_ids_;
   std::vector<int> direction_parent_,direction_rank_,direction_parity_;
   std::unordered_map<std::string, int> point_id_, line_id_, circle_id_;
+  std::unordered_map<std::string,std::string> line_canonical_name_;
   std::map<std::pair<int,int>, int> segment_line_;
   AngleSystem angles_;
   std::set<std::pair<std::pair<int,int>, std::pair<int,int>>> equal_lengths_;
@@ -444,7 +445,17 @@ class Engine {
   }
   int add_line(Line l) {
     if (line_id_.count(l.name)) throw std::runtime_error("duplicate line: " + l.name);
+    long double norm=std::hypotl(l.a,l.b);if(norm<=EPS)throw std::runtime_error("cannot add a degenerate line");
+    l.a/=norm;l.b/=norm;l.c/=norm;
+    if(l.a < -EPS || (std::fabs(l.a)<=EPS&&l.b<0)){l.a=-l.a;l.b=-l.b;l.c=-l.c;}
+    for(std::size_t i=0;i<lines_.size();++i){const auto&q=lines_[i];
+      long double tolerance=10*EPS*(1+std::fabs(l.c)+std::fabs(q.c));
+      if(std::fabs(l.a-q.a)<=10*EPS&&std::fabs(l.b-q.b)<=10*EPS&&std::fabs(l.c-q.c)<=tolerance){
+        line_id_[l.name]=static_cast<int>(i);line_canonical_name_[l.name]=q.name;return static_cast<int>(i);
+      }
+    }
     int id = static_cast<int>(lines_.size()); line_id_[l.name] = id; lines_.push_back(std::move(l));
+    line_canonical_name_[lines_.back().name]=lines_.back().name;
     line_depth_.push_back(0);
     line_points_.emplace_back();direction_parent_.push_back(id);
     direction_rank_.push_back(0);direction_parity_.push_back(0);return id;
@@ -463,7 +474,9 @@ class Engine {
     if (it != segment_line_.end()) return it->second;
     std::string n = "@" + points_[a].name + points_[b].name;
     int id = add_line(through(n, points_[a], points_[b], "segment"));
-    line_points_[static_cast<std::size_t>(id)]={a,b};
+    auto&on=line_points_[static_cast<std::size_t>(id)];
+    if(std::find(on.begin(),on.end(),a)==on.end())on.push_back(a);
+    if(std::find(on.begin(),on.end(),b)==on.end())on.push_back(b);
     segment_line_[key] = id; return id;
   }
   static AngleSystem::Coeff equation(std::initializer_list<std::pair<int,int>> xs) {
@@ -499,9 +512,10 @@ class Engine {
     angles_.add(equation({{x,1},{y,-1}}), 1, 2, why);
   }
   void circumcenter_angle_fact(int o,int a,int b,int c,const std::string& why){
-    // angle(ACB)+angle(OAB)=90 degrees, written without dividing a relation.
+    // angle(ACB)-angle(OAB)=90 degrees in the line-angle convention used
+    // here. Written without dividing a relation.
     angles_.add(equation({{segment(b,c),1},{segment(a,c),-1},
-                          {segment(a,b),1},{segment(a,o),-1}}),1,2,why);
+                          {segment(a,b),-1},{segment(a,o),1}}),1,2,why);
   }
   void incidence(int p, int l, const std::string& why) {
     auto known=line_points_[static_cast<std::size_t>(l)];
@@ -1031,9 +1045,19 @@ class Engine {
         }
       }
 
-      for(const auto&x:circle_cache_)if(x.points.size()>=4){std::set<int>w;if(proves_cyclic(x.points,&w))
-        for(std::size_t i=3;i<x.points.size();++i){auto before=cyclic_facts_.size();
-          add_cyclic(x.points[0],x.points[1],x.points[2],x.points[i],"converse cyclic angle theorem");changed|=cyclic_facts_.size()!=before;}}
+      // A detected numerical circle can contain both elementary and genuinely
+      // difficult points. Certify its members independently: requiring one
+      // proof for the entire maximal set lets a single hard member suppress
+      // useful cyclic facts for every easy member on that circle.
+      for(const auto&x:circle_cache_)if(x.points.size()>=4)
+        for(std::size_t i=3;i<x.points.size();++i){
+          std::vector<int> quadruple{x.points[0],x.points[1],x.points[2],x.points[i]};
+          std::set<int>w;if(proves_cyclic(quadruple,&w)){
+            auto before=cyclic_facts_.size();
+            add_cyclic(x.points[0],x.points[1],x.points[2],x.points[i],"converse cyclic angle theorem");
+            changed|=cyclic_facts_.size()!=before;
+          }
+        }
       // Kite: two equidistant vertices give both perpendicular diagonals and the
       // full reflection angle relation between the four corresponding sides.
       std::map<int,std::vector<SegmentKey>> length_classes;
@@ -1125,7 +1149,10 @@ class Engine {
         depth=1+std::max({point_depth_[triple[0]],point_depth_[triple[1]],point_depth_[triple[2]]});
         name=automatic_name("Bis");execute({"angle_bisector",name,points_[triple[0]].name,points_[triple[1]].name,points_[triple[2]].name},0);
       }
-      int id=lid(name);line_depth_[static_cast<std::size_t>(id)]=depth;return id;
+      int id=lid(name);
+      if(lines_[static_cast<std::size_t>(id)].name==name)line_depth_[static_cast<std::size_t>(id)]=depth;
+      else line_depth_[static_cast<std::size_t>(id)]=std::min(line_depth_[static_cast<std::size_t>(id)],depth);
+      return id;
     }
     return -1;
   }
@@ -1265,14 +1292,20 @@ class Engine {
   using ProducerMap=std::map<ObjectRef,std::size_t>;
   std::string construction_expression(const ObjectRef&object,const ProducerMap&producer,
       std::map<ObjectRef,std::string>&memo,std::set<ObjectRef>&active,bool force=false)const{
+    ObjectRef canonical=object;
+    if(canonical.kind==ObjectKind::line)if(auto alias=line_canonical_name_.find(canonical.name);alias!=line_canonical_name_.end())canonical.name=alias->second;
     // Points supplied by the input configuration are named lemmas from the
     // user's perspective. Expand their own POINT assignment, but keep them
     // atomic whenever a later generated definition refers to them.
-    if(!force&&object.kind==ObjectKind::point&&input_point_names_.count(object.name))return object.name;
-    if(auto known=memo.find(object);known!=memo.end())return known->second;
-    if(!active.insert(object).second)return object.name;
-    auto done=[&](std::string value){active.erase(object);memo[object]=value;return value;};
-    auto found=producer.find(object);if(found==producer.end())return done(object.name);
+    if(!force&&canonical.kind==ObjectKind::point&&input_point_names_.count(canonical.name))return canonical.name;
+    if(auto known=memo.find(canonical);known!=memo.end())return known->second;
+    if(!active.insert(canonical).second)return canonical.name;
+    auto done=[&](std::string value){active.erase(canonical);memo[canonical]=value;return value;};
+    auto found=producer.find(canonical);if(found==producer.end()){
+      if(canonical.kind==ObjectKind::line){int id=lid(canonical.name);const auto&on=line_points_[static_cast<std::size_t>(id)];if(on.size()>=2)
+        return done("line("+construction_expression({ObjectKind::point,points_[on[0]].name},producer,memo,active)+","+construction_expression({ObjectKind::point,points_[on[1]].name},producer,memo,active)+")");}
+      return done(canonical.name);
+    }
     const auto&t=construction_commands_[found->second];const auto&op=t[0];
     auto point=[&](std::size_t i){return construction_expression({ObjectKind::point,t[i]},producer,memo,active);};
     auto line=[&](std::size_t i){return construction_expression({ObjectKind::line,t[i]},producer,memo,active);};

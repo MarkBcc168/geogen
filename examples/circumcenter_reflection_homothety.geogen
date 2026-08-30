@@ -1,0 +1,8 @@
+mode prove
+triangle A B C
+reflection_point D A B
+reflection_point E A C
+circumcenter O A D E
+prove_perpendicular O B A B
+prove_perpendicular O C A C
+prove_concyclic A B C O
