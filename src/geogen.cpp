@@ -24,6 +24,35 @@
 
 namespace geogen {
 
+struct AffineScalar {
+  static constexpr std::int64_t p1=1000000007,p2=1000000009;
+  std::int64_t a=0,b=0;
+  AffineScalar()=default;
+  AffineScalar(std::int64_t x):a((x%p1+p1)%p1),b((x%p2+p2)%p2){}
+  static std::int64_t power(std::int64_t x,std::int64_t n,std::int64_t p){std::int64_t r=1;while(n){if(n&1)r=r*x%p;x=x*x%p;n>>=1;}return r;}
+  AffineScalar inverse()const{if(a==0||b==0)throw std::runtime_error("singular affine field element");AffineScalar r;r.a=power(a,p1-2,p1);r.b=power(b,p2-2,p2);return r;}
+  friend AffineScalar operator+(AffineScalar x,AffineScalar y){AffineScalar r;r.a=(x.a+y.a)%p1;r.b=(x.b+y.b)%p2;return r;}
+  friend AffineScalar operator-(AffineScalar x,AffineScalar y){AffineScalar r;r.a=(x.a-y.a+p1)%p1;r.b=(x.b-y.b+p2)%p2;return r;}
+  friend AffineScalar operator*(AffineScalar x,AffineScalar y){AffineScalar r;r.a=x.a*y.a%p1;r.b=x.b*y.b%p2;return r;}
+  friend AffineScalar operator/(AffineScalar x,AffineScalar y){return x*y.inverse();}
+  auto operator<=>(const AffineScalar&)const=default;
+};
+using AffineVector = std::array<AffineScalar,3>;
+
+AffineVector affine_cross(const AffineVector&a,const AffineVector&b){
+  return {a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};
+}
+bool affine_zero(const AffineVector&a){return a[0]==AffineScalar(0)&&a[1]==AffineScalar(0)&&a[2]==AffineScalar(0);}
+AffineVector affine_normalize_projective(AffineVector a){
+  for(const auto&x:a)if(x.a!=0&&x.b!=0){AffineScalar pivot=x;for(auto&y:a)y=y/pivot;return a;}
+  return {AffineScalar(0),AffineScalar(0),AffineScalar(0)};
+}
+std::optional<AffineVector> affine_normalize_point(AffineVector a){
+  AffineScalar sum=a[0]+a[1]+a[2];if(sum.a==0||sum.b==0)return std::nullopt;
+  for(auto&x:a)x=x/sum;
+  return a;
+}
+
 constexpr long double EPS = 1e-9L;
 constexpr long double PI = 3.141592653589793238462643383279502884L;
 
@@ -718,7 +747,7 @@ class Engine {
     else if(op=="perp_bisector"){need(4);int a=pid(t[2]),b=pid(t[3]);Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};Line base=through("",points_[a],points_[b],"");Line l{t[1],base.b,-base.a,-(base.b*m.x-base.a*m.y),op};int id=add_line(l);perpendicular_fact(id,segment(a,b),"perpendicular bisector "+t[1]);perpendicular_bisectors_.push_back({id,a,b});}
     else if(op=="parallel"||op=="perpendicular"){need(4);int p=pid(t[2]),base=lid(t[3]);const Line& q=lines_[base];Line l;if(op=="parallel")l={t[1],q.a,q.b,-q.a*points_[p].x-q.b*points_[p].y,op};else l={t[1],q.b,-q.a,-q.b*points_[p].x+q.a*points_[p].y,op};int id=add_line(l);incidence(p,id,op+" through point");if(op=="parallel")parallel_fact(id,base,"parallel construction "+t[1]);else perpendicular_fact(id,base,"perpendicular construction "+t[1]);}
     else if(op=="angle_bisector"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double ux=points_[a].x-points_[b].x,uy=points_[a].y-points_[b].y,vx=points_[c].x-points_[b].x,vy=points_[c].y-points_[b].y;long double un=std::hypotl(ux,uy),vn=std::hypotl(vx,vy);Point q{"",points_[b].x+ux/un+vx/vn,points_[b].y+uy/un+vy/vn,""};int id=add_line(through(t[1],points_[b],q,op));incidence(b,id,"angle bisector through vertex");angles_.add(equation({{id,2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"angle bisector "+t[1]);angle_bisector_line_facts_.push_back({id,b});}
-    else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op}))return;int x=pid(t[1]);perpendicular_fact(segment(p,x),l,"line reflection "+t[1]);for(int axis_point:line_points_[static_cast<std::size_t>(l)])if(axis_point!=p&&axis_point!=x)equal_length(axis_point,p,axis_point,x,"reflection-axis equal distances");line_reflection_facts_.push_back({x,p,l});}
+    else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op}))return;int x=pid(t[1]);perpendicular_fact(segment(p,x),l,"line reflection "+t[1]);for(int axis_point:line_points_[static_cast<std::size_t>(l)])if(axis_point!=p&&axis_point!=x){equal_length(axis_point,p,axis_point,x,"reflection-axis equal distances");angles_.add(equation({{segment(axis_point,p),1},{segment(axis_point,x),1},{l,-2}}),0,1,"line-reflection angle symmetry "+t[1]);}line_reflection_facts_.push_back({x,p,l});}
     else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);if(!add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op}))return;int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);inherit_collinearity(x,p,o,"point reflection incidence "+t[1]);equal_length(p,o,o,x,"point reflection lengths");register_midpoint_fact(o,p,x,"point reflection "+t[1]);}
     else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op}))return;int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);foot_facts_.push_back({x,p,l});}
     else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);if(!add_point(intersect(lines_[a],lines_[b],t[1],op)))return;int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
@@ -737,7 +766,10 @@ class Engine {
     else if(op=="circumcircle"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);Point o=circumcenter(points_[a],points_[b],points_[c],"@"+t[1],op);add_circle({t[1],o,dist2(o,points_[a]),op});int z=cid(t[1]);circle_incidence(a,z);circle_incidence(b,z);circle_incidence(c,z);}
     else if(op=="incircle"){need(6);int i=pid(t[2]),a=pid(t[3]),b=pid(t[4]),c=pid(t[5]);Line ab=through("",points_[a],points_[b],"");long double r=ab.a*points_[i].x+ab.b*points_[i].y+ab.c;add_circle({t[1],points_[i],r*r,op},i);(void)c;}
     else if(op=="intersection_lc_known"){need(5);int l=lid(t[2]),c=cid(t[3]),k=pid(t[4]);auto&ln=lines_[l];auto&cc=circles_[c];if(std::fabs(ln.a*points_[k].x+ln.b*points_[k].y+ln.c)>EPS*10||!near(dist2(cc.center,points_[k]),cc.r2,10))throw std::runtime_error(t[4]+" is not a known intersection of "+t[2]+" and "+t[3]);long double dx=ln.b,dy=-ln.a;long double vx=points_[k].x-cc.center.x,vy=points_[k].y-cc.center.y;long double tt=-2*dot(vx,vy,dx,dy);if(std::fabs(tt)<=EPS)throw std::runtime_error("known line-circle intersection is tangent; no distinct second point");if(!add_point({t[1],points_[k].x+tt*dx,points_[k].y+tt*dy,op}))return;int x=pid(t[1]);incidence(k,l,"known line-circle incidence");incidence(x,l,"line-circle second incidence");circle_incidence(k,c);circle_incidence(x,c);parallel_fact(segment(k,x),l,"line-circle known-root incidence");}
-    else if(op=="intersection_cc_known"){need(5);int c1=cid(t[2]),c2=cid(t[3]),k=pid(t[4]);auto&a=circles_[c1];auto&b=circles_[c2];if(!near(dist2(a.center,points_[k]),a.r2,10)||!near(dist2(b.center,points_[k]),b.r2,10))throw std::runtime_error(t[4]+" is not on both circles");Line axis=through("",a.center,b.center,"");long double d=axis.a*points_[k].x+axis.b*points_[k].y+axis.c;if(std::fabs(d)<=EPS)throw std::runtime_error("known circle-circle intersection is tangent; no distinct second point");if(!add_point({t[1],points_[k].x-2*axis.a*d,points_[k].y-2*axis.b*d,op}))return;int x=pid(t[1]);circle_incidence(k,c1);circle_incidence(x,c1);circle_incidence(k,c2);circle_incidence(x,c2);}
+    else if(op=="intersection_cc_known"){need(5);int c1=cid(t[2]),c2=cid(t[3]),k=pid(t[4]);auto&a=circles_[c1];auto&b=circles_[c2];if(!near(dist2(a.center,points_[k]),a.r2,10)||!near(dist2(b.center,points_[k]),b.r2,10))throw std::runtime_error(t[4]+" is not on both circles");Line axis=through("",a.center,b.center,"");long double d=axis.a*points_[k].x+axis.b*points_[k].y+axis.c;if(std::fabs(d)<=EPS)throw std::runtime_error("known circle-circle intersection is tangent; no distinct second point");if(!add_point({t[1],points_[k].x-2*axis.a*d,points_[k].y-2*axis.b*d,op}))return;int x=pid(t[1]);circle_incidence(k,c1);circle_incidence(x,c1);circle_incidence(k,c2);circle_incidence(x,c2);
+      int o1=circle_center_ids_[static_cast<std::size_t>(c1)],o2=circle_center_ids_[static_cast<std::size_t>(c2)];
+      if(o1>=0&&o2>=0&&o1!=o2){int centers=segment(o1,o2);equal_length(o1,k,o1,x,"circle-circle equal radii");equal_length(o2,k,o2,x,"circle-circle equal radii");perpendicular_fact(segment(k,x),centers,"circle-circle common chord perpendicular to center line");angles_.add(equation({{segment(o1,k),1},{segment(o1,x),1},{centers,-2}}),0,1,"circle-circle reflection across center line");angles_.add(equation({{segment(o2,k),1},{segment(o2,x),1},{centers,-2}}),0,1,"circle-circle reflection across center line");}
+    }
     else if(op.rfind("prove_",0)==0){goals_.push_back({op.substr(6),std::vector<std::string>(t.begin()+1,t.end())});}
     else throw std::runtime_error("line "+std::to_string(line_no)+": unknown command "+op);
   }
@@ -775,14 +807,76 @@ class Engine {
     for(std::size_t c=0;c<circle_points_.size();++c){int root=circle_find(static_cast<int>(c));circle_points_[c].assign(component_circle_points[root].begin(),component_circle_points[root].end());if(auto it=component_center.find(root);it!=component_center.end())circle_center_ids_[c]=it->second;}
   }
 
+  void register_affine_facts(){
+    // Use two-field barycentric coordinates only when the initial configuration is
+    // one free triangle. A generic quadrilateral has a fourth independent
+    // coordinate choice which this deliberately small affine layer does not
+    // attempt to encode.
+    int triangle_commands=0;std::vector<std::string> initial;
+    for(const auto&t:construction_commands_){if(t[0]=="triangle"){++triangle_commands;initial=t;}
+      else if(t[0]=="quadrilateral"||t[0]=="cyclic_quad"||t[0]=="point")return;}
+    if(triangle_commands!=1||initial.size()!=4)return;
+
+    std::vector<std::optional<AffineVector>> point(points_.size());
+    std::vector<std::optional<AffineVector>> line(lines_.size());
+    point[static_cast<std::size_t>(pid(initial[1]))]=AffineVector{AffineScalar(1),AffineScalar(0),AffineScalar(0)};
+    point[static_cast<std::size_t>(pid(initial[2]))]=AffineVector{AffineScalar(0),AffineScalar(1),AffineScalar(0)};
+    point[static_cast<std::size_t>(pid(initial[3]))]=AffineVector{AffineScalar(0),AffineScalar(0),AffineScalar(1)};
+    auto assign_point=[&](const std::string&name,const std::optional<AffineVector>&value){if(!value)return;int id=pid(name);if(!point[static_cast<std::size_t>(id)])point[static_cast<std::size_t>(id)]=*value;};
+    auto assign_line=[&](const std::string&name,const std::optional<AffineVector>&value){if(!value)return;int id=lid(name);if(static_cast<std::size_t>(id)>=line.size())line.resize(lines_.size());if(!line[static_cast<std::size_t>(id)])line[static_cast<std::size_t>(id)]=affine_normalize_projective(*value);};
+    auto point_value=[&](const std::string&name)->std::optional<AffineVector>{return point[static_cast<std::size_t>(pid(name))];};
+    auto line_value=[&](const std::string&name)->std::optional<AffineVector>{int id=lid(name);if(static_cast<std::size_t>(id)>=line.size())return std::nullopt;return line[static_cast<std::size_t>(id)];};
+
+    const AffineVector infinity{AffineScalar(1),AffineScalar(1),AffineScalar(1)};
+    for(const auto&t:construction_commands_){const auto&op=t[0];
+      if(op=="line"){auto a=point_value(t[2]),b=point_value(t[3]);if(a&&b){auto l=affine_cross(*a,*b);if(!affine_zero(l))assign_line(t[1],l);}}
+      else if(op=="midpoint"){auto a=point_value(t[2]),b=point_value(t[3]);if(a&&b){AffineVector m;for(int i=0;i<3;++i)m[static_cast<std::size_t>(i)]=((*a)[static_cast<std::size_t>(i)]+(*b)[static_cast<std::size_t>(i)])/2;assign_point(t[1],m);}}
+      else if(op=="reflection_point"){auto p=point_value(t[2]),o=point_value(t[3]);if(p&&o){AffineVector x;for(int i=0;i<3;++i)x[static_cast<std::size_t>(i)]=2*(*o)[static_cast<std::size_t>(i)]-(*p)[static_cast<std::size_t>(i)];assign_point(t[1],x);}}
+      else if(op=="parallel"){auto p=point_value(t[2]),base=line_value(t[3]);if(p&&base){auto direction=affine_cross(*base,infinity);auto l=affine_cross(*p,direction);if(!affine_zero(l))assign_line(t[1],l);}}
+      else if(op=="intersection_ll"){auto a=line_value(t[2]),b=line_value(t[3]);if(a&&b)assign_point(t[1],affine_normalize_point(affine_cross(*a,*b)));}
+    }
+
+    std::map<AffineVector,std::vector<int>> at;
+    std::vector<int> known_points;for(std::size_t i=0;i<point.size();++i)if(point[i]){known_points.push_back(static_cast<int>(i));at[*point[i]].push_back(static_cast<int>(i));}
+    // Discover every already constructed point which is the certified midpoint
+    // of two affine-known points. This includes nested midpoint/reflection
+    // identities not visible from the local construction that named the point.
+    for(std::size_t i=0;i<known_points.size();++i)for(std::size_t j=i+1;j<known_points.size();++j){int a=known_points[i],b=known_points[j];AffineVector m;
+      for(int k=0;k<3;++k)m[static_cast<std::size_t>(k)]=((*point[static_cast<std::size_t>(a)])[static_cast<std::size_t>(k)]+(*point[static_cast<std::size_t>(b)])[static_cast<std::size_t>(k)])/2;
+      auto found=at.find(m);if(found==at.end())continue;for(int center:found->second)if(center!=a&&center!=b){equal_length(a,center,center,b,"affine midpoint identity");register_midpoint_fact(center,a,b,"affine midpoint identity");inherit_collinearity(center,a,b,"affine midpoint incidence");}}
+
+    // Group affine-known points by certified carrier. Only groups of at least three
+    // add information; pair-only carriers are left unmaterialized.
+    std::map<AffineVector,std::set<int>> carriers;
+    for(std::size_t i=0;i<known_points.size();++i)for(std::size_t j=i+1;j<known_points.size();++j){int a=known_points[i],b=known_points[j];auto l=affine_cross(*point[static_cast<std::size_t>(a)],*point[static_cast<std::size_t>(b)]);if(!affine_zero(l)){l=affine_normalize_projective(std::move(l));carriers[l].insert(a);carriers[l].insert(b);}}
+    for(const auto&[_,on]:carriers)if(on.size()>=3){auto it=on.begin();int a=*it++,b=*it++;int carrier=segment(a,b);for(;it!=on.end();++it)incidence(*it,carrier,"affine collinearity certificate");}
+
+    // Recover equations for every existing carrier containing two known
+    // affine points, then register direction classes with the angle engine.
+    line.resize(lines_.size());
+    for(std::size_t l=0;l<line_points_.size();++l)if(!line[l]){std::vector<int> on;for(int p:line_points_[l])if(point[static_cast<std::size_t>(p)])on.push_back(p);if(on.size()>=2){auto value=affine_cross(*point[static_cast<std::size_t>(on[0])],*point[static_cast<std::size_t>(on[1])]);if(!affine_zero(value))line[l]=affine_normalize_projective(std::move(value));}}
+    std::map<AffineVector,std::vector<int>> directions;
+    for(std::size_t l=0;l<line.size();++l)if(line[l]){auto direction=affine_normalize_projective(affine_cross(*line[l],infinity));if(!affine_zero(direction))directions[direction].push_back(static_cast<int>(l));}
+    for(const auto&[_,same]:directions)if(same.size()>=2)for(std::size_t i=1;i<same.size();++i)parallel_fact(same[0],same[i],"affine parallelism certificate");
+  }
+
   void geometry_closure() {
     // Only declared construction incidences enter the proof layer. Numerical
     // discoveries remain conjectures and therefore cannot prove themselves.
+    register_affine_facts();
     normalize_definition_incidences();
     register_center_loci();
     normalize_definition_incidences();
     register_incenter_loci();
     normalize_definition_incidences();
+    // A mirror may acquire additional certified points after its reflection was
+    // constructed (notably a circumcenter on a perpendicular-bisector mirror).
+    // Propagate reflection symmetry to those late incidences as well.
+    for(const auto&f:line_reflection_facts_)for(int axis_point:line_points_[static_cast<std::size_t>(f.line)])
+      if(axis_point!=f.source&&axis_point!=f.image){
+        equal_length(axis_point,f.source,axis_point,f.image,"late reflection-axis equal distances");
+        angles_.add(equation({{segment(axis_point,f.source),1},{segment(axis_point,f.image),1},{f.line,-2}}),0,1,"late line-reflection angle symmetry");
+      }
     // The unique intersection of a segment carrier and its perpendicular
     // bisector is the segment midpoint. This includes the familiar fact that
     // the perpendicular foot from a circumcenter to a chord bisects the chord.
@@ -825,8 +919,24 @@ class Engine {
         add_cyclic(on[0],on[1],on[2],on[i],"points constructed on circle "+circles_[c].name);
     }
     circle_cache_ = detect_circles(true);
+    std::vector<std::pair<std::size_t,int>> pending_midpoint_carriers;
+    for(std::size_t i=0;i<midpoint_facts_.size();++i){const auto&f=midpoint_facts_[i];
+      for(int p=0;p<(int)points_.size();++p){if(p==f.midpoint||p==f.a||p==f.b)continue;
+        if(std::fabs(cross(points_[p],points_[f.a],points_[f.b]))<=EPS*scale(points_[p],points_[f.a],points_[f.b])*10)
+          pending_midpoint_carriers.push_back({i,p});}}
     bool changed=true;int rounds=0;
     while(changed&&rounds++<8){changed=false;
+      // A midpoint inherits every subsequently proved carrier of its endpoints.
+      // Some carriers become available only after theorem closure (for example,
+      // reflecting a point across an angle bisector). A numerical test merely
+      // prunes candidates; the collinearity premise is proved symbolically.
+      std::vector<std::pair<std::size_t,int>> still_pending;still_pending.reserve(pending_midpoint_carriers.size());
+      for(auto [index,p]:pending_midpoint_carriers){const auto&f=midpoint_facts_[index];
+        if(!proves_collinear({p,f.a,f.b})){still_pending.push_back({index,p});continue;}
+        auto target=equation({{segment(p,f.midpoint),1},{segment(p,f.b),-1}});
+        if(!angles_.proves(target,0,1)){parallel_fact(segment(p,f.midpoint),segment(p,f.b),"midpoint inherits proved endpoint carrier");changed=true;}
+      }
+      pending_midpoint_carriers=std::move(still_pending);
       // Angle-defined kite congruence. If AC bisects both endpoint angles of
       // quadrilateral ABCD, then AB=AD and CB=CD. The two hypotheses are
       // checked as undivided equations, so this rule is sound for directed
@@ -896,6 +1006,15 @@ class Engine {
       auto find_root=[&](int x){while(parent[x]!=x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
       auto unite=[&](int a,int b){a=find_root(a);b=find_root(b);if(a!=b)parent[b]=a;};
       for(const auto&f:equal_lengths_)unite(get_node(f.first),get_node(f.second));
+      // Every triangle center fixed by the symmetry of an isosceles triangle
+      // lies on that symmetry axis. For an incenter, this first registers the
+      // equal distances to the base endpoints; the ordinary kite closure then
+      // derives that the apex-incenter line is perpendicular to the base.
+      auto lengths_same=[&](int a,int b,int c,int d){auto x=node.find(lenkey(a,b)),y=node.find(lenkey(c,d));return x!=node.end()&&y!=node.end()&&find_root(x->second)==find_root(y->second);};
+      for(const auto&f:incenter_facts_)for(auto [apex,u,v]:
+          {std::array{f.a,f.b,f.c},std::array{f.b,f.a,f.c},std::array{f.c,f.a,f.b}})
+        if(lengths_same(apex,u,apex,v)){changed|=equal_length(f.center,u,f.center,v,"incenter symmetry in isosceles triangle");
+          int axis=segment(apex,f.center),base=segment(u,v);if(!direction_known(axis,base,1)){perpendicular_fact(axis,base,"isosceles-triangle incenter symmetry axis");changed=true;}}
       for(int o=0;o<(int)points_.size();++o){std::map<int,std::vector<int>> groups;
         for(int p=0;p<(int)points_.size();++p)if(p!=o){auto it=node.find(lenkey(o,p));if(it!=node.end())groups[find_root(it->second)].push_back(p);}
         for(const auto&[_,on]:groups)if(on.size()>=4)for(std::size_t i=3;i<on.size();++i){auto before=cyclic_facts_.size();add_cyclic(on[0],on[1],on[2],on[i],"equal radii about "+points_[o].name);changed|=cyclic_facts_.size()!=before;}
@@ -932,6 +1051,10 @@ class Engine {
         auto isosceles=equation({{segment(vertex,b),1},{segment(vertex,c),1},{segment(b,c),-2}});
         if(!angles_.proves(isosceles,0,1)){angles_.add(isosceles,0,1,"isosceles triangle theorem "+points_[vertex].name+points_[b].name+points_[c].name);changed=true;}
       }
+      // Converse perpendicular-bisector theorem. Reuse an existing canonical
+      // locus instead of creating a new line for every isolated equality.
+      for(const auto&[base,vertices]:wings){auto locus=perpendicular_bisector_loci_.find(base);if(locus==perpendicular_bisector_loci_.end())continue;
+        for(int vertex:vertices){auto&on=line_points_[static_cast<std::size_t>(locus->second)];if(std::find(on.begin(),on.end(),vertex)==on.end()){incidence(vertex,locus->second,"equal distances imply perpendicular-bisector incidence");changed=true;}}}
       for(const auto& [base,vertices]:wings)for(auto ai=vertices.begin();ai!=vertices.end();++ai)for(auto di=std::next(ai);di!=vertices.end();++di){
         std::string why="kite theorem "+points_[*ai].name+points_[base.first].name+points_[*di].name+points_[base.second].name;
         int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2)){perpendicular_fact(ad,bc,why);changed=true;}
@@ -940,6 +1063,11 @@ class Engine {
       }
 
     }
+    // Theorems found during closure can identify previously separate carriers
+    // (for example, two proved-parallel lines through the same point). Merge
+    // them once more so definition-level incidence queries use the completed
+    // fact base rather than only the pre-closure construction graph.
+    normalize_definition_incidences();
   }
 
   std::string automatic_name(const std::string&prefix){
@@ -1199,7 +1327,7 @@ class Engine {
       if(selected.insert(it->second).second)
         for(auto input:command_inputs(construction_commands_[it->second]))todo.push_back(std::move(input));
     }
-    Engine sub(seed_,generation_seed_);sub.record_commands_=false;sub.angles_.set_coefficient_limit(angle_coefficient_limit_);
+    Engine sub(seed_,generation_seed_);sub.record_commands_=true;sub.angles_.set_coefficient_limit(angle_coefficient_limit_);
     for(std::size_t command:selected)sub.execute(construction_commands_[command],0);
     sub.geometry_closure();std::vector<int> local;local.reserve(candidate.size());
     for(int p:candidate)local.push_back(sub.pid(points_[static_cast<std::size_t>(p)].name));

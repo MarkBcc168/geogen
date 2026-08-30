@@ -1,0 +1,10 @@
+mode prove
+triangle A B C
+reflection_point P A C
+reflection_point R P B
+midpoint N A C
+midpoint M B N
+reflection_point T C M
+prove_collinear C R M
+prove_equal_distance C T T R
+prove_parallel T N R A
