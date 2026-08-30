@@ -1,0 +1,20 @@
+mode prove
+triangle A B C
+perp_bisector p B C
+
+# First stress-run pattern.
+foot M B p
+reflection_point T C B
+reflection_point P T M
+parallel qC C p
+reflection_line R1 A qC
+prove_concyclic A B P R1
+
+# Second stress-run pattern.
+reflection_point D A B
+foot F D qC
+parallel qB B p
+foot G A qB
+reflection_point E A C
+reflection_line R2 E p
+prove_concyclic A F G R2

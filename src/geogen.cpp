@@ -53,6 +53,27 @@ std::optional<AffineVector> affine_normalize_point(AffineVector a){
   return a;
 }
 
+// Homogeneous scalar linear equations checked simultaneously over two large
+// prime fields. Unlike the directed-angle lattice, ordinary coordinate
+// equations may be divided during Gaussian elimination.
+class PairedLinearSystem {
+  using Row=std::map<int,AffineScalar>;
+  std::map<int,Row> basis_;
+  static Row make_row(std::initializer_list<std::pair<int,int>> terms){
+    Row row;for(auto [variable,coefficient]:terms){auto value=row[variable]+AffineScalar(coefficient);
+      if(value==AffineScalar(0))row.erase(variable);else row[variable]=value;}return row;
+  }
+  void reduce(Row&row)const{while(!row.empty()){auto found=basis_.find(row.begin()->first);if(found==basis_.end())break;
+      AffineScalar factor=AffineScalar(0)-row.begin()->second;for(const auto&[variable,coefficient]:found->second){
+        auto value=row[variable]+factor*coefficient;if(value==AffineScalar(0))row.erase(variable);else row[variable]=value;}}}
+ public:
+  void add(std::initializer_list<std::pair<int,int>> terms){Row row=make_row(terms);reduce(row);if(row.empty())return;
+    AffineScalar inverse=row.begin()->second.inverse();for(auto&[_,coefficient]:row)coefficient=coefficient*inverse;
+    basis_[row.begin()->first]=std::move(row);
+  }
+  bool proves(std::initializer_list<std::pair<int,int>> terms)const{Row row=make_row(terms);reduce(row);return row.empty();}
+};
+
 constexpr long double EPS = 1e-9L;
 constexpr long double PI = 3.141592653589793238462643383279502884L;
 
@@ -841,6 +862,17 @@ class Engine {
     auto point_value=[&](const std::string&name)->std::optional<AffineVector>{return point[static_cast<std::size_t>(pid(name))];};
     auto line_value=[&](const std::string&name)->std::optional<AffineVector>{int id=lid(name);if(static_cast<std::size_t>(id)>=line.size())return std::nullopt;return line[static_cast<std::size_t>(id)];};
 
+    // Metric closure can discover an affine fact after the first affine pass;
+    // notably, the intersection of a segment and its perpendicular bisector is
+    // a midpoint even when that point was originally named as a foot. Seed such
+    // learned midpoints before replaying subsequent affine constructions.
+    bool seeded=true;while(seeded){seeded=false;for(const auto&f:midpoint_facts_)
+      if(!point[static_cast<std::size_t>(f.midpoint)]&&point[static_cast<std::size_t>(f.a)]&&point[static_cast<std::size_t>(f.b)]){
+        AffineVector m;for(int i=0;i<3;++i)m[static_cast<std::size_t>(i)]=
+          ((*point[static_cast<std::size_t>(f.a)])[static_cast<std::size_t>(i)]+(*point[static_cast<std::size_t>(f.b)])[static_cast<std::size_t>(i)])/2;
+        point[static_cast<std::size_t>(f.midpoint)]=m;seeded=true;
+      }}
+
     const AffineVector infinity{AffineScalar(1),AffineScalar(1),AffineScalar(1)};
     for(const auto&t:construction_commands_){const auto&op=t[0];
       if(op=="line"){auto a=point_value(t[2]),b=point_value(t[3]);if(a&&b){auto l=affine_cross(*a,*b);if(!affine_zero(l))assign_line(t[1],l);}}
@@ -874,6 +906,102 @@ class Engine {
     for(const auto&[_,same]:directions)if(same.size()>=2)for(std::size_t i=1;i<same.size();++i)parallel_fact(same[0],same[i],"affine parallelism certificate");
   }
 
+  void register_perpendicular_bisector_midpoints(){
+    // The unique intersection of a segment carrier and its perpendicular
+    // bisector is the segment midpoint. This includes the familiar fact that
+    // the perpendicular foot from a circumcenter to a chord bisects the chord.
+    for(const auto&pb:perpendicular_bisectors_)for(int x:line_points_[static_cast<std::size_t>(pb.line)]){
+      if(x==pb.a||x==pb.b)continue;
+      bool on_base=false;
+      for(const auto&carrier:line_points_)if(std::find(carrier.begin(),carrier.end(),pb.a)!=carrier.end()&&
+          std::find(carrier.begin(),carrier.end(),pb.b)!=carrier.end()&&std::find(carrier.begin(),carrier.end(),x)!=carrier.end()){on_base=true;break;}
+      if(on_base){equal_length(pb.a,x,x,pb.b,"perpendicular-bisector intersection midpoint lengths");register_midpoint_fact(x,pb.a,pb.b,"perpendicular-bisector intersection");}
+    }
+  }
+
+  void register_derived_perpendicular_bisectors(){
+    // Any known line through a segment midpoint and perpendicular to the
+    // segment is its perpendicular bisector. Register the locus so reflection
+    // transport and equal-distance closure can use it just like an explicitly
+    // constructed perpendicular_bisector.
+    std::size_t midpoint_count=midpoint_facts_.size();
+    for(std::size_t i=0;i<midpoint_count;++i){const auto f=midpoint_facts_[i];int base=segment(f.a,f.b);std::size_t line_count=lines_.size();
+      for(std::size_t l=0;l<line_count;++l){const auto&on=line_points_[l];
+        if(std::find(on.begin(),on.end(),f.midpoint)==on.end()||!direction_known(static_cast<int>(l),base,1))continue;
+        auto key=lenkey(f.a,f.b);perpendicular_bisector_loci_[key]=static_cast<int>(l);
+        bool known=false;for(const auto&pb:perpendicular_bisectors_)if(pb.line==static_cast<int>(l)&&lenkey(pb.a,pb.b)==key){known=true;break;}
+        if(!known)perpendicular_bisectors_.push_back({static_cast<int>(l),f.a,f.b});
+      }
+    }
+  }
+
+  bool register_orthogonal_trapezoids(){
+    // Materialize the candidate chords before building direction-component
+    // models; segment() can create a previously unseen canonical carrier.
+    for(const auto&candidate:circle_cache_)if(candidate.points.size()>=4)
+      for(std::size_t i=0;i<candidate.points.size();++i)for(std::size_t j=i+1;j<candidate.points.size();++j)
+        segment(candidate.points[i],candidate.points[j]);
+
+    struct Model {PairedLinearSystem along,across;};
+    constexpr std::array<std::array<int,4>,3> partitions{{{{0,1,2,3}},{{0,2,1,3}},{{0,3,1,2}}}};
+    std::set<int> relevant_roots;
+    for(const auto&candidate:circle_cache_)if(candidate.points.size()>=4)
+      for(std::size_t i=3;i<candidate.points.size();++i){std::array<int,4> q{candidate.points[0],candidate.points[1],candidate.points[2],candidate.points[i]};
+        for(const auto&z:partitions){int first=segment(q[static_cast<std::size_t>(z[0])],q[static_cast<std::size_t>(z[1])]);int second=segment(q[static_cast<std::size_t>(z[2])],q[static_cast<std::size_t>(z[3])]);
+          auto [root1,parity1]=direction_find(first);auto [root2,parity2]=direction_find(second);if(root1==root2&&parity1==parity2)relevant_roots.insert(root1);}}
+    std::map<int,Model> models;for(int root:relevant_roots)models.try_emplace(root);
+
+    // Midpoint and point-reflection constructions are vector equations in both
+    // orthogonal components, independent of the chosen direction component.
+    for(auto&[_,model]:models)for(const auto&f:midpoint_facts_){
+      model.along.add({{f.midpoint,2},{f.a,-1},{f.b,-1}});
+      model.across.add({{f.midpoint,2},{f.a,-1},{f.b,-1}});
+    }
+
+    // Points on a carrier share the coordinate perpendicular to its direction.
+    for(std::size_t l=0;l<lines_.size();++l){auto [root,parity]=direction_find(static_cast<int>(l));auto found=models.find(root);if(found==models.end())continue;auto&system=parity==0?found->second.across:found->second.along;
+      const auto&on=line_points_[l];if(on.size()<2)continue;int representative=on[0];
+      for(std::size_t i=1;i<on.size();++i)system.add({{on[i],1},{representative,-1}});
+    }
+
+    // Reflection preserves the along-axis component and reverses the normal
+    // component about any certified point of the mirror. A perpendicular
+    // bisector supplies the same normal equation through its endpoint average
+    // even when its midpoint was not explicitly constructed.
+    for(const auto&f:line_reflection_facts_){auto [root,parity]=direction_find(f.line);auto found=models.find(root);if(found==models.end())continue;auto&model=found->second;
+      auto&along=parity==0?model.along:model.across;auto&normal=parity==0?model.across:model.along;
+      along.add({{f.source,1},{f.image,-1}});
+      for(int axis_point:line_points_[static_cast<std::size_t>(f.line)])
+        normal.add({{f.source,1},{f.image,1},{axis_point,-2}});
+      for(const auto&pb:perpendicular_bisectors_)if(pb.line==f.line)
+        normal.add({{f.source,1},{f.image,1},{pb.a,-1},{pb.b,-1}});
+    }
+
+    auto mirrored=[&](const Model&model,int base_parity,int a,int c,int b,int d){
+      const auto&along=base_parity==0?model.along:model.across;
+      const auto&normal=base_parity==0?model.across:model.along;
+      // Vector AC is the reflection of vector BD across the direction normal
+      // to the parallel bases: along components are opposite, normal components
+      // agree. This is the non-parallelogram branch of the equal-leg condition.
+      return along.proves({{c,1},{a,-1},{d,1},{b,-1}})&&
+             normal.proves({{c,1},{a,-1},{d,-1},{b,1}});
+    };
+
+    bool changed=false;
+    for(const auto&candidate:circle_cache_)if(candidate.points.size()>=4)
+      for(std::size_t i=3;i<candidate.points.size();++i){std::array<int,4> q{candidate.points[0],candidate.points[1],candidate.points[2],candidate.points[i]};bool proved=false;
+        for(const auto&z:partitions){int a=q[static_cast<std::size_t>(z[0])],b=q[static_cast<std::size_t>(z[1])],c=q[static_cast<std::size_t>(z[2])],d=q[static_cast<std::size_t>(z[3])];
+          int first=segment(a,b),second=segment(c,d);auto [root1,parity1]=direction_find(first);auto [root2,parity2]=direction_find(second);
+          if(root1!=root2||parity1!=parity2)continue;
+          const auto&model=models[root1];
+          if(mirrored(model,parity1,a,c,b,d)){changed|=equal_length(a,c,b,d,"orthogonal-component isosceles trapezoid");auto before=cyclic_facts_.size();add_cyclic(a,b,c,d,"orthogonal-component isosceles trapezoid theorem");changed|=cyclic_facts_.size()!=before;proved=true;break;}
+          if(mirrored(model,parity1,a,d,b,c)){changed|=equal_length(a,d,b,c,"orthogonal-component isosceles trapezoid");auto before=cyclic_facts_.size();add_cyclic(a,b,c,d,"orthogonal-component isosceles trapezoid theorem");changed|=cyclic_facts_.size()!=before;proved=true;break;}
+        }
+        if(proved)continue;
+      }
+    return changed;
+  }
+
   void geometry_closure() {
     // Only declared construction incidences enter the proof layer. Numerical
     // discoveries remain conjectures and therefore cannot prove themselves.
@@ -883,6 +1011,10 @@ class Engine {
     normalize_definition_incidences();
     register_incenter_loci();
     normalize_definition_incidences();
+    register_perpendicular_bisector_midpoints();
+    register_affine_facts();
+    normalize_definition_incidences();
+    register_derived_perpendicular_bisectors();
     // A mirror may acquire additional certified points after its reflection was
     // constructed (notably a circumcenter on a perpendicular-bisector mirror).
     // Propagate reflection symmetry to those late incidences as well.
@@ -909,16 +1041,6 @@ class Engine {
           angles_.add(equation({{segment(f.source,pb.b),1},{segment(f.image,pb.a),1},{f.line,-2}}),0,1,
                       "reflection transports line across perpendicular bisector");
       }
-    // The unique intersection of a segment carrier and its perpendicular
-    // bisector is the segment midpoint. This includes the familiar fact that
-    // the perpendicular foot from a circumcenter to a chord bisects the chord.
-    for(const auto&pb:perpendicular_bisectors_)for(int x:line_points_[static_cast<std::size_t>(pb.line)]){
-      if(x==pb.a||x==pb.b)continue;
-      bool on_base=false;
-      for(const auto&carrier:line_points_)if(std::find(carrier.begin(),carrier.end(),pb.a)!=carrier.end()&&
-          std::find(carrier.begin(),carrier.end(),pb.b)!=carrier.end()&&std::find(carrier.begin(),carrier.end(),x)!=carrier.end()){on_base=true;break;}
-      if(on_base){equal_length(pb.a,x,x,pb.b,"perpendicular-bisector intersection midpoint lengths");register_midpoint_fact(x,pb.a,pb.b,"perpendicular-bisector intersection");}
-    }
     // If two segments have the same midpoint, their endpoints form a
     // parallelogram in the crossed order. Both opposite-side parallels are
     // direct affine consequences and use no angle division.
@@ -1105,6 +1227,10 @@ class Engine {
       }
 
     }
+    // Component models are comparatively expensive and depend on the completed
+    // incidence/direction closure. Build them once, after the ordinary fixed
+    // point, rather than once per theorem round.
+    register_orthogonal_trapezoids();
     // Theorems found during closure can identify previously separate carriers
     // (for example, two proved-parallel lines through the same point). Merge
     // them once more so definition-level incidence queries use the completed

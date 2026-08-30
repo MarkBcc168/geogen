@@ -230,6 +230,12 @@ successful angular proof lists the construction/theorem facts used. See
   closure runs, so those facts can trigger midline, parallelogram, cyclic, and
   other downstream rules. Identities must agree over two independent prime
   fields; metric constructions are intentionally left to the metric/angle layer.
+- A complementary two-prime orthogonal-component prover works inside certified
+  parallel/perpendicular direction classes. It combines line incidences,
+  midpoints, feet, and reflections as scalar linear equations. In particular,
+  it recognizes an isosceles trapezoid when the two leg vectors are certified
+  mirror images across the direction perpendicular to its bases, then registers
+  equal legs and cyclicity without relying on numerical equality.
 
 - Collinear sets are found by grouping normalized directions about each pivot.
   This takes `O(n^2 log n)` time and keeps only actual candidate groups.
