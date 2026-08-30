@@ -142,6 +142,12 @@ name is retained only as an internal alias of the canonical point, so subsequent
 explicit DSL commands remain valid. For example, constructing the orthocenter of
 `A,B,H(A,B,C)` aliases that result to `C` instead of creating a recursive duplicate.
 
+Lines are canonicalized in the same way. A construction that reproduces an
+existing geometric line remains usable by its requested name, but it does not
+create another line or another expansion seed. Point definitions are printed
+with the canonical line expression. For example,
+`perpendicular(C,perpendicular_bisector(B,C))` is rendered as `line(B,C)`.
+
 ### Point, line, and circle constructions
 
 ```text
