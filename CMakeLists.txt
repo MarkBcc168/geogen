@@ -202,4 +202,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/perpendicular_bisector_reflection.geogen)
   set_tests_properties(perpendicular_bisector_reflection_circle PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED concyclic.A,B,C,O1,R1,R2,O2")
+  add_test(NAME orthogonal_isosceles_trapezoids
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthogonal_isosceles_trapezoids.geogen)
+  set_tests_properties(orthogonal_isosceles_trapezoids PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.A,F,G,R2")
 endif()
