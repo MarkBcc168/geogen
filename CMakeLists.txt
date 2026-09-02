@@ -90,6 +90,10 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
   set_tests_properties(random_generation_known_root_circles PROPERTIES
     PASS_REGULAR_EXPRESSION "POINT X(lc|cc).* = other_intersection")
+  add_test(NAME random_generation_uses_circumcircles
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
+  set_tests_properties(random_generation_uses_circumcircles PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT X(lc|cc).*circumcircle")
   add_test(NAME point_output_definitions
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/output_definitions.geogen)
   set_tests_properties(point_output_definitions PROPERTIES
@@ -206,4 +210,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthogonal_isosceles_trapezoids.geogen)
   set_tests_properties(orthogonal_isosceles_trapezoids PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED concyclic.A,F,G,R2")
+  add_test(NAME fixed_point_cross_prover_propagation
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthogonal_isosceles_trapezoids.geogen)
+  set_tests_properties(fixed_point_cross_prover_propagation PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED equal_distance.O,A,O,R2")
 endif()

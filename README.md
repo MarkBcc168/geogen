@@ -97,8 +97,12 @@ not require finding unknown quadratic roots:
 Supporting objects are generated randomly as well. Lines may be defined by two
 points, as a perpendicular bisector or angle bisector, or as a parallel or
 perpendicular through a point. Circles may be center-radius circles,
-circumcircles, or incircles. These auxiliary objects are interleaved with point
-generation and bounded indirectly by the point cap.
+circumcircles, or incircles. Circumcircles through three existing points are the
+dominant random circle choice. Known-root line-circle and circle-circle
+intersections first reuse existing circles; when they need a supporting circle,
+they create a circumcircle through the known intersection whenever possible.
+These auxiliary objects are interleaved with point generation and bounded
+indirectly by the point cap.
 
 Input choices use weights proportional to `4^(-depth)`, normalized to the
 shallowest currently available object. Each additional construction level is
@@ -258,10 +262,19 @@ successful angular proof lists the construction/theorem facts used. See
   cached. Prime-field membership is tested using coefficient-only sparse rows;
   the more expensive original-fact combination is reconstructed only after a
   candidate is known to lie in both field spans.
-- The fixed-point chase adds cyclic converse facts and indexed kite consequences;
-  orthocenter, circumcenter, incenter, midpoint, incidence, parallel,
-  perpendicular, reflection, and angle-bisector constructions seed their standard
-  relations. It stops when a pass adds no facts.
+- Profiling the 100-point generator attributes roughly 30% of samples to the
+  modular reducer as a whole, chiefly sparse-map traversal and certificate
+  updates rather than isolated multiplication. Residues therefore remain in
+  ordinary representation: converting the entire proof basis and certificates
+  to Montgomery form did not have a sufficiently large measured target to
+  justify the added representation and decoding complexity.
+- The prover runs a global fixed point across affine incidence, metric closure,
+  center and perpendicular-bisector loci, reflection propagation, directed-angle
+  chasing, cyclic converses, indexed kite consequences, and the orthogonal
+  component prover. A theorem discovered by a late phase is therefore available
+  to every earlier phase on the next pass. Closure stops only when a complete
+  pass adds no stored incidence, angle, cyclic, midpoint, or equal-length fact;
+  there is no fixed round limit.
 - Midpoint closure includes the triangle midline theorem and the right-triangle
   hypotenuse-midpoint theorem. Perpendicular-bisector incidences add equal
   distances, kites add their full reflection-angle relation, and the standard six

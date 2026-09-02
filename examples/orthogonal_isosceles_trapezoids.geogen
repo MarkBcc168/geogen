@@ -18,3 +18,9 @@ foot G A qB
 reflection_point E A C
 reflection_line R2 E p
 prove_concyclic A F G R2
+
+# The orthogonal-component theorem proves A,F,G,R2 cyclic.  That new cyclic
+# fact must feed the circumcenter radius-completion rule on the next closure
+# pass, rather than stopping after a single sweep.
+circumcenter O A F G
+prove_equal_distance O A O R2

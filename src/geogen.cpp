@@ -277,6 +277,7 @@ class AngleSystem {
   }
 
  public:
+  std::size_t fact_count()const{return rows_.size();}
   void set_coefficient_limit(std::int64_t limit){
     if(limit<1)throw std::runtime_error("angle coefficient limit must be positive");
     coefficient_limit_=limit;proven_cache_.clear();
@@ -524,13 +525,17 @@ class Engine {
     auto [rx,px]=direction_find(x);auto [ry,py]=direction_find(y);
     return rx==ry&&((px^py)==parity);
   }
-  void parallel_fact(int x, int y, const std::string& why) {
+  bool parallel_fact(int x, int y, const std::string& why) {
+    bool known=direction_known(x,y,0);
     direction_union(x,y,0);
-    angles_.add(equation({{x,1},{y,-1}}), 0, 1, why);
+    bool added=angles_.add(equation({{x,1},{y,-1}}), 0, 1, why);
+    return !known||added;
   }
-  void perpendicular_fact(int x, int y, const std::string& why) {
+  bool perpendicular_fact(int x, int y, const std::string& why) {
+    bool known=direction_known(x,y,1);
     direction_union(x,y,1);
-    angles_.add(equation({{x,1},{y,-1}}), 1, 2, why);
+    bool added=angles_.add(equation({{x,1},{y,-1}}), 1, 2, why);
+    return !known||added;
   }
   void circumcenter_angle_fact(int o,int a,int b,int c,const std::string& why){
     // angle(ACB)-angle(OAB)=90 degrees in the line-angle convention used
@@ -1005,6 +1010,14 @@ class Engine {
   void geometry_closure() {
     // Only declared construction incidences enter the proof layer. Numerical
     // discoveries remain conjectures and therefore cannot prove themselves.
+    auto fact_count=[&]{
+      std::size_t total=angles_.fact_count()+equal_lengths_.size()+cyclic_facts_.size()+
+                        midpoint_facts_.size()+perpendicular_bisectors_.size();
+      for(const auto&on:line_points_)total+=on.size();
+      return total;
+    };
+    bool candidates_detected=false;
+    for(;;){std::size_t facts_before=fact_count();
     register_affine_facts();
     normalize_definition_incidences();
     register_center_loci();
@@ -1072,14 +1085,14 @@ class Engine {
       if(on.size()>=4) for(std::size_t i=3;i<on.size();++i)
         add_cyclic(on[0],on[1],on[2],on[i],"points constructed on circle "+circles_[c].name);
     }
-    circle_cache_ = detect_circles(true);
+    if(!candidates_detected){circle_cache_=detect_circles(true);candidates_detected=true;}
     std::vector<std::pair<std::size_t,int>> pending_midpoint_carriers;
     for(std::size_t i=0;i<midpoint_facts_.size();++i){const auto&f=midpoint_facts_[i];
       for(int p=0;p<(int)points_.size();++p){if(p==f.midpoint||p==f.a||p==f.b)continue;
         if(std::fabs(cross(points_[p],points_[f.a],points_[f.b]))<=EPS*scale(points_[p],points_[f.a],points_[f.b])*10)
           pending_midpoint_carriers.push_back({i,p});}}
-    bool changed=true;int rounds=0;
-    while(changed&&rounds++<8){changed=false;
+    bool changed=true;
+    while(changed){changed=false;
       // A midpoint inherits every subsequently proved carrier of its endpoints.
       // Some carriers become available only after theorem closure (for example,
       // reflecting a point across an angle bisector). A numerical test merely
@@ -1088,7 +1101,7 @@ class Engine {
       for(auto [index,p]:pending_midpoint_carriers){const auto&f=midpoint_facts_[index];
         if(!proves_collinear({p,f.a,f.b})){still_pending.push_back({index,p});continue;}
         auto target=equation({{segment(p,f.midpoint),1},{segment(p,f.b),-1}});
-        if(!angles_.proves(target,0,1)){parallel_fact(segment(p,f.midpoint),segment(p,f.b),"midpoint inherits proved endpoint carrier");changed=true;}
+        if(!angles_.proves(target,0,1))changed|=parallel_fact(segment(p,f.midpoint),segment(p,f.b),"midpoint inherits proved endpoint carrier");
       }
       pending_midpoint_carriers=std::move(still_pending);
       // Angle-defined kite congruence. If AC bisects both endpoint angles of
@@ -1168,7 +1181,7 @@ class Engine {
       for(const auto&f:incenter_facts_)for(auto [apex,u,v]:
           {std::array{f.a,f.b,f.c},std::array{f.b,f.a,f.c},std::array{f.c,f.a,f.b}})
         if(lengths_same(apex,u,apex,v)){changed|=equal_length(f.center,u,f.center,v,"incenter symmetry in isosceles triangle");
-          int axis=segment(apex,f.center),base=segment(u,v);if(!direction_known(axis,base,1)){perpendicular_fact(axis,base,"isosceles-triangle incenter symmetry axis");changed=true;}}
+          int axis=segment(apex,f.center),base=segment(u,v);if(!direction_known(axis,base,1))changed|=perpendicular_fact(axis,base,"isosceles-triangle incenter symmetry axis");}
       for(int o=0;o<(int)points_.size();++o){std::map<int,std::vector<int>> groups;
         for(int p=0;p<(int)points_.size();++p)if(p!=o){auto it=node.find(lenkey(o,p));if(it!=node.end())groups[find_root(it->second)].push_back(p);}
         for(const auto&[_,on]:groups)if(on.size()>=4)for(std::size_t i=3;i<on.size();++i){auto before=cyclic_facts_.size();add_cyclic(on[0],on[1],on[2],on[i],"equal radii about "+points_[o].name);changed|=cyclic_facts_.size()!=before;}
@@ -1213,7 +1226,7 @@ class Engine {
         if(b>c)std::swap(b,c);
         wings[{b,c}].insert(vertex);
         auto isosceles=equation({{segment(vertex,b),1},{segment(vertex,c),1},{segment(b,c),-2}});
-        if(!angles_.proves(isosceles,0,1)){angles_.add(isosceles,0,1,"isosceles triangle theorem "+points_[vertex].name+points_[b].name+points_[c].name);changed=true;}
+        if(!angles_.proves(isosceles,0,1))changed|=angles_.add(isosceles,0,1,"isosceles triangle theorem "+points_[vertex].name+points_[b].name+points_[c].name);
       }
       // Converse perpendicular-bisector theorem. Reuse an existing canonical
       // locus instead of creating a new line for every isolated equality.
@@ -1221,9 +1234,9 @@ class Engine {
         for(int vertex:vertices){auto&on=line_points_[static_cast<std::size_t>(locus->second)];if(std::find(on.begin(),on.end(),vertex)==on.end()){incidence(vertex,locus->second,"equal distances imply perpendicular-bisector incidence");changed=true;}}}
       for(const auto& [base,vertices]:wings)for(auto ai=vertices.begin();ai!=vertices.end();++ai)for(auto di=std::next(ai);di!=vertices.end();++di){
         std::string why="kite theorem "+points_[*ai].name+points_[base.first].name+points_[*di].name+points_[base.second].name;
-        int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2)){perpendicular_fact(ad,bc,why);changed=true;}
+        int ad=segment(*ai,*di),bc=segment(base.first,base.second);if(!angles_.proves(equation({{ad,1},{bc,-1}}),1,2))changed|=perpendicular_fact(ad,bc,why);
         auto symmetry=equation({{segment(*ai,base.first),1},{segment(*ai,base.second),1},{segment(*di,base.first),-1},{segment(*di,base.second),-1}});
-        if(!angles_.proves(symmetry,0,1)){angles_.add(symmetry,0,1,why+" [reflection angles]");changed=true;}
+        if(!angles_.proves(symmetry,0,1))changed|=angles_.add(symmetry,0,1,why+" [reflection angles]");
       }
 
     }
@@ -1236,6 +1249,8 @@ class Engine {
     // them once more so definition-level incidence queries use the completed
     // fact base rather than only the pre-closure construction graph.
     normalize_definition_incidences();
+    if(fact_count()==facts_before)break;
+    }
   }
 
   std::string automatic_name(const std::string&prefix){
@@ -1303,13 +1318,16 @@ class Engine {
   int create_random_circle(){
     if(points_.size()<2)return -1;
     for(int attempt=0;attempt<64;++attempt){
-      int kind=std::uniform_int_distribution<int>(0,2)(generation_rng_);
+      // Circumcircles are the standard Olympiad circle construction, so give
+      // them most of the automatic-circle probability. Center--point circles
+      // and incircles remain available for configurations that need them.
+      int kind=std::uniform_int_distribution<int>(0,5)(generation_rng_);
       std::string name;int depth=0;
-      if(kind==1){
+      if(kind<=3){
         auto triple=random_distinct_points(3,true);if(triple.empty())continue;
         depth=1+std::max({point_depth_[triple[0]],point_depth_[triple[1]],point_depth_[triple[2]]});
         name=automatic_name("Circ");execute({"circumcircle",name,points_[triple[0]].name,points_[triple[1]].name,points_[triple[2]].name},0);
-      } else if(kind==0||incenter_facts_.empty()) {
+      } else if(kind==4||incenter_facts_.empty()) {
         auto pair=random_distinct_points(2);int o=pair[0],p=pair[1];depth=1+std::max(point_depth_[o],point_depth_[p]);
         name=automatic_name("Circle");execute({"circle",name,points_[o].name,points_[p].name},0);
       } else {
@@ -1353,10 +1371,19 @@ class Engine {
     if(kind==8){
       if(!auto_line_circle_)return false;
       auto line_pool=named_lines();if(line_pool.empty()){create_random_line();line_pool=named_lines();}if(line_pool.empty())return false;
-      for(int attempt=0;attempt<32;++attempt){int line=depth_weighted_pick(line_pool,line_depth_);const auto&on=line_points_[line];if(on.empty())continue;
-        int k=on[std::uniform_int_distribution<std::size_t>(0,on.size()-1)(generation_rng_)],o=random_point();if(o==k)continue;
-        std::string circle_name=automatic_name("Circle");int circle_depth=1+std::max(point_depth_[o],point_depth_[k]);
-        execute({"circle",circle_name,points_[o].name,points_[k].name},0);int circle=cid(circle_name);circle_depth_[circle]=circle_depth;
+      for(int attempt=0;attempt<32;++attempt){int line=depth_weighted_pick(line_pool,line_depth_),circle=-1,k=-1;auto circle_pool=named_circles();
+        // Prefer an existing circle--especially one of the automatically
+        // generated circumcircles--when it shares a certified point with the
+        // selected line.
+        if(!circle_pool.empty()){int candidate=depth_weighted_pick(circle_pool,circle_depth_);std::vector<int> common;
+          for(int p:line_points_[static_cast<std::size_t>(line)])if(std::find(circle_points_[static_cast<std::size_t>(candidate)].begin(),circle_points_[static_cast<std::size_t>(candidate)].end(),p)!=circle_points_[static_cast<std::size_t>(candidate)].end())common.push_back(p);
+          if(!common.empty()){circle=candidate;k=common[std::uniform_int_distribution<std::size_t>(0,common.size()-1)(generation_rng_)];}}
+        // If no existing pair has a known root, create a circumcircle through a
+        // point already on the line and two additional low-depth points.
+        if(circle<0){const auto&on=line_points_[static_cast<std::size_t>(line)];if(on.empty())continue;k=on[std::uniform_int_distribution<std::size_t>(0,on.size()-1)(generation_rng_)];
+          auto pair=random_distinct_points(2);if(pair.empty()||pair[0]==k||pair[1]==k||std::fabs(cross(points_[k],points_[pair[0]],points_[pair[1]]))<=EPS*scale(points_[k],points_[pair[0]],points_[pair[1]]))continue;
+          std::string circle_name=automatic_name("Circ");int circle_depth=1+std::max({point_depth_[k],point_depth_[pair[0]],point_depth_[pair[1]]});
+          execute({"circumcircle",circle_name,points_[k].name,points_[pair[0]].name,points_[pair[1]].name},0);circle=cid(circle_name);circle_depth_[static_cast<std::size_t>(circle)]=circle_depth;}
         const auto&ln=lines_[line];const auto&cc=circles_[circle];long double dx=ln.b,dy=-ln.a;
         if(std::fabs(-2*dot(points_[k].x-cc.center.x,points_[k].y-cc.center.y,dx,dy))<=EPS)continue;
         int depth=1+std::max(line_depth_[line],circle_depth_[circle]);name=automatic_name("Xlc");
@@ -1365,11 +1392,21 @@ class Engine {
     }
     if(!auto_line_circle_)return false;
     for(int attempt=0;attempt<32;++attempt){
-      int k=random_point(),o1=random_point(),o2=random_point();if(k==o1||k==o2||o1==o2)continue;
-      if(std::fabs(cross(points_[o1],points_[k],points_[o2]))<=EPS*scale(points_[o1],points_[k],points_[o2]))continue;
-      std::string c1_name=automatic_name("Circle"),c2_name=automatic_name("Circle");
-      execute({"circle",c1_name,points_[o1].name,points_[k].name},0);execute({"circle",c2_name,points_[o2].name,points_[k].name},0);
-      int c1=cid(c1_name),c2=cid(c2_name);circle_depth_[c1]=1+std::max(point_depth_[o1],point_depth_[k]);circle_depth_[c2]=1+std::max(point_depth_[o2],point_depth_[k]);
+      int c1=-1,c2=-1,k=-1;auto pool=named_circles();
+      if(pool.size()>=2){c1=depth_weighted_pick(pool,circle_depth_);c2=depth_weighted_pick(pool,circle_depth_);if(c1==c2)continue;std::vector<int> common;
+        for(int p:circle_points_[static_cast<std::size_t>(c1)])if(std::find(circle_points_[static_cast<std::size_t>(c2)].begin(),circle_points_[static_cast<std::size_t>(c2)].end(),p)!=circle_points_[static_cast<std::size_t>(c2)].end())common.push_back(p);
+        if(!common.empty())k=common[std::uniform_int_distribution<std::size_t>(0,common.size()-1)(generation_rng_)];}
+      if(k<0){k=random_point();auto first=random_distinct_points(2),second=random_distinct_points(2);if(first.empty()||second.empty())continue;
+        if(first[0]==k||first[1]==k||second[0]==k||second[1]==k||std::fabs(cross(points_[k],points_[first[0]],points_[first[1]]))<=EPS*scale(points_[k],points_[first[0]],points_[first[1]])||std::fabs(cross(points_[k],points_[second[0]],points_[second[1]]))<=EPS*scale(points_[k],points_[second[0]],points_[second[1]]))continue;
+        std::string c1_name=automatic_name("Circ"),c2_name=automatic_name("Circ");
+        execute({"circumcircle",c1_name,points_[k].name,points_[first[0]].name,points_[first[1]].name},0);execute({"circumcircle",c2_name,points_[k].name,points_[second[0]].name,points_[second[1]].name},0);
+        c1=cid(c1_name);c2=cid(c2_name);circle_depth_[static_cast<std::size_t>(c1)]=1+std::max({point_depth_[k],point_depth_[first[0]],point_depth_[first[1]]});circle_depth_[static_cast<std::size_t>(c2)]=1+std::max({point_depth_[k],point_depth_[second[0]],point_depth_[second[1]]});}
+      if(c1<0||c2<0||k<0)continue;
+      Point center1=circles_[static_cast<std::size_t>(c1)].center;
+      Point center2=circles_[static_cast<std::size_t>(c2)].center;
+      if(dist2(center1,center2)<=EPS*EPS)continue;
+      Line axis=through("",center1,center2,"");
+      if(std::fabs(axis.a*points_[k].x+axis.b*points_[k].y+axis.c)<=EPS)continue;
       int depth=1+std::max(circle_depth_[c1],circle_depth_[c2]);name=automatic_name("Xcc");
       execute({"intersection_cc_known",name,circles_[c1].name,circles_[c2].name,points_[k].name},0);return finish(depth);
     }
