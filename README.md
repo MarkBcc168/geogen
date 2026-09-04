@@ -77,9 +77,13 @@ candidate to an easy one merely from numerical incidence.
 distinct points of the initial configuration. Every explicit and automatic
 construction is replayed with `B` and `C` interchanged, recursively using the
 duals of its input objects. A dual output receives an `S$`-prefixed stable name
-unless it numerically aliases an existing point or line. Detected statements
-are annotated with `symmetry=self` or `symmetry_with=...`; paired statements are
-printed next to each other.
+unless it numerically aliases an existing point or line. Every detected
+statement is retained. Swap-invariant statements are annotated with
+`symmetry=self`; non-invariant statements use `symmetry=asymmetric` and name
+their `symmetric_partner`. Paired asymmetric statements are printed next to
+each other. If numerical construction or maximal-set grouping prevents the
+partner from being detected, it is still printed with
+`symmetric_partner=not_detected` rather than being suppressed.
 
 The advanced `point P x y` command remains available for diagnostics, but a
 fixed-coordinate point changes the problem and should not normally be used in a

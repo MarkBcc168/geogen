@@ -1913,7 +1913,10 @@ class Engine {
   std::string candidate_statement(const Candidate&candidate,const std::set<std::string>&all_candidates)const{
     auto core=candidate_core(candidate),dual=symmetric_core(candidate);std::string symmetry;
     if(!dual.empty()&&dual==core)symmetry=" [symmetry=self]";
-    else if(!dual.empty()&&all_candidates.count(dual))symmetry=" [symmetry_with="+dual+"]";
+    else if(!dual.empty()&&all_candidates.count(dual))
+      symmetry=" [symmetry=asymmetric] [symmetric_partner="+dual+"]";
+    else if(symmetry_enabled_)
+      symmetry=" [symmetry=asymmetric] [symmetric_partner=not_detected]";
     return candidate.kind+"("+point_list(candidate.points)+")"+
            symmetry+unused_initial_annotation(candidate.points)+cyclic_shape_annotation(candidate);
   }
@@ -1996,7 +1999,7 @@ class Engine {
 namespace {
 
 struct RunSettings {
-  bool prove=false,show_easy=false;
+  bool prove=false,show_easy=false,symmetry=false;
   int trials=5;
   std::uint64_t seed=0x47454f47454eULL;
 };
@@ -2011,6 +2014,7 @@ RunSettings read_settings(const std::string& input) {
       if(b=="trials")s.trials=std::stoi(c);
       else if(b=="seed")s.seed=std::stoull(c);
       else if(b=="show_easy")s.show_easy=std::stoi(c)!=0;
+      else if(b=="symmetry")s.symmetry=true;
     }
   }
   if(s.trials<1||s.trials>100)throw std::runtime_error("option trials must be between 1 and 100");
@@ -2063,13 +2067,14 @@ std::size_t generated_point_count(const std::string&report){
 }
 
 std::string symmetry_group_key(const std::string&line){
-  constexpr std::string_view marker="[symmetry_with=";auto marked=line.find(marker);
+  constexpr std::string_view marker="[symmetric_partner=";auto marked=line.find(marker);
   if(marked==std::string::npos)return "~"+line;
   auto partner_begin=marked+marker.size(),partner_end=line.find(']',partner_begin);
   auto prefix_end=line.find(' '),annotation=line.find(" [",prefix_end+1);
   if(partner_end==std::string::npos||prefix_end==std::string::npos)return "~"+line;
   std::string own=line.substr(prefix_end+1,(annotation==std::string::npos?line.size():annotation)-(prefix_end+1));
   std::string partner=line.substr(partner_begin,partner_end-partner_begin);
+  if(partner=="not_detected")return "~"+line;
   return line.substr(0,prefix_end)+" "+std::min(own,partner);
 }
 
@@ -2110,6 +2115,14 @@ int main(int argc,char**argv){try{
     auto ga=symmetry_group_key(a),gb=symmetry_group_key(b);return ga==gb?a<b:ga<gb;
   });
   for(const auto& line:ordered)std::cout<<line<<'\n';
-  std::cout<<"summary stable_coincidences="<<common.size()<<"\n";
+  std::cout<<"summary stable_coincidences="<<common.size();
+  if(settings.symmetry){std::size_t self=0,asymmetric=0,unpaired=0;
+    for(const auto&line:common){self+=line.find("[symmetry=self]")!=std::string::npos;
+      asymmetric+=line.find("[symmetry=asymmetric]")!=std::string::npos;
+      unpaired+=line.find("[symmetric_partner=not_detected]")!=std::string::npos;}
+    std::cout<<" symmetric_self="<<self<<" asymmetric_statements="<<asymmetric
+             <<" unpaired_asymmetric="<<unpaired;
+  }
+  std::cout<<"\n";
   return 0;
 }catch(const std::exception&e){std::cerr<<"geogen: "<<e.what()<<'\n';return 1;}}
