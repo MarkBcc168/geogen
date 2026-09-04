@@ -398,7 +398,11 @@ class Engine {
   std::map<std::pair<int,int>,int> perpendicular_bisector_loci_;
   std::vector<std::vector<std::string>> construction_commands_;
   std::set<std::string> input_point_names_;
+  std::set<std::string> initial_point_names_;
   bool record_commands_=true,ancestry_scope_=false;
+  bool symmetry_enabled_=false,symmetry_ready_=false;
+  std::string symmetry_first_,symmetry_second_;
+  std::map<ObjectRef,ObjectRef> symmetry_dual_;
   std::int64_t angle_coefficient_limit_=10000;
   std::vector<std::array<int,3>> initial_triangles_;
   bool prove_mode_ = false, show_easy_ = false;
@@ -441,6 +445,61 @@ class Engine {
     else if(op=="intersection_lc_known"){line(2);circle(3);point(4);}
     else if(op=="intersection_cc_known"){circle(2);circle(3);point(4);}
     return in;
+  }
+
+  ObjectRef canonical_object(ObjectRef object)const{
+    if(object.kind==ObjectKind::point)object.name=points_[static_cast<std::size_t>(pid(object.name))].name;
+    else if(object.kind==ObjectKind::line)object.name=lines_[static_cast<std::size_t>(lid(object.name))].name;
+    return object;
+  }
+  std::string dual_name(const ObjectRef&object)const{
+    ObjectRef canonical=canonical_object(object);auto found=symmetry_dual_.find(canonical);
+    if(found==symmetry_dual_.end())throw std::runtime_error("symmetry has no dual for "+object.name);
+    return found->second.name;
+  }
+  std::vector<std::string> make_dual_command(const std::vector<std::string>&source){
+    const auto&op=source[0];auto dual=source;
+    if(op=="triangle"||op=="quadrilateral"||op=="cyclic_quad"||op=="point")
+      throw std::runtime_error("cannot replay an initial declaration as a symmetric construction");
+    dual[1]="S$"+source[1];
+    auto point=[&](std::size_t i){dual[i]=dual_name({ObjectKind::point,source[i]});};
+    auto line=[&](std::size_t i){dual[i]=dual_name({ObjectKind::line,source[i]});};
+    auto circle=[&](std::size_t i){dual[i]=dual_name({ObjectKind::circle,source[i]});};
+    if(op=="line"||op=="midpoint"||op=="perp_bisector"||op=="reflection_point"){point(2);point(3);}
+    else if(op=="parallel"||op=="perpendicular"||op=="reflection_line"||op=="foot"){point(2);line(3);}
+    else if(op=="angle_bisector"||op=="circumcenter"||op=="orthocenter"||op=="incenter"||op=="circumcircle"){point(2);point(3);point(4);}
+    else if(op=="intersection_ll"){line(2);line(3);}
+    else if(op=="circle"){point(2);point(3);}
+    else if(op=="incircle"){point(2);point(3);point(4);point(5);}
+    else if(op=="intersection_lc_known"){line(2);circle(3);point(4);}
+    else if(op=="intersection_cc_known"){circle(2);circle(3);point(4);}
+    else throw std::runtime_error("symmetry does not support construction "+op);
+    return dual;
+  }
+  void register_dual_outputs(const std::vector<std::string>&source,const std::vector<std::string>&dual){
+    auto source_outputs=command_outputs(source),dual_outputs=command_outputs(dual);
+    for(std::size_t i=0;i<source_outputs.size();++i){
+      auto a=canonical_object(source_outputs[i]),b=canonical_object(dual_outputs[i]);
+      symmetry_dual_[a]=b;symmetry_dual_[b]=a;
+    }
+  }
+  void replay_symmetric_commands(std::size_t begin,std::size_t end){
+    for(std::size_t i=begin;i<end;++i){
+      auto source=construction_commands_[i];
+      if(source[0]=="triangle"||source[0]=="quadrilateral"||source[0]=="cyclic_quad")continue;
+      if(source[0]=="point")throw std::runtime_error("option symmetry does not support coordinate point declarations");
+      auto dual=make_dual_command(source);execute(dual,0);register_dual_outputs(source,dual);
+    }
+  }
+  void establish_symmetry(){
+    if(!symmetry_enabled_||symmetry_ready_)return;
+    if(!initial_point_names_.count(symmetry_first_)||!initial_point_names_.count(symmetry_second_)||symmetry_first_==symmetry_second_)
+      throw std::runtime_error("option symmetry requires two distinct initial point names");
+    for(const auto&name:initial_point_names_)symmetry_dual_[{ObjectKind::point,name}]={ObjectKind::point,name};
+    symmetry_dual_[{ObjectKind::point,symmetry_first_}]={ObjectKind::point,symmetry_second_};
+    symmetry_dual_[{ObjectKind::point,symmetry_second_}]={ObjectKind::point,symmetry_first_};
+    std::size_t explicit_end=construction_commands_.size();
+    replay_symmetric_commands(0,explicit_end);symmetry_ready_=true;
   }
 
   long double random_real(long double lo, long double hi) {
@@ -779,6 +838,7 @@ class Engine {
         p[i]={t[i+1],random_real(-10,10),random_real(-10,10),"random initial triangle"};
     } while(std::fabs(cross(p[0],p[1],p[2]))<5.0L);
     for(auto& q:p) add_point(std::move(q));
+    initial_point_names_.insert(t[1]);initial_point_names_.insert(t[2]);initial_point_names_.insert(t[3]);
     initial_triangles_.push_back({pid(t[1]),pid(t[2]),pid(t[3])});
   }
 
@@ -801,6 +861,7 @@ class Engine {
       if(good)break;
     }
     for(auto& q:p) add_point(std::move(q));
+    for(std::size_t i=1;i<5;++i)initial_point_names_.insert(t[i]);
     if(cyclic) add_cyclic(pid(t[1]),pid(t[2]),pid(t[3]),pid(t[4]),
                           "initial cyclic quadrilateral");
   }
@@ -810,7 +871,14 @@ class Engine {
     const auto& op=t[0];
     if(record_commands_&&is_construction(op))construction_commands_.push_back(t);
     if(op=="mode"){need(2);prove_mode_=t[1]=="prove";if(t[1]!="prove"&&t[1]!="generate")throw std::runtime_error("mode is generate or prove");}
-    else if(op=="option"){need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit"){angle_coefficient_limit_=std::stoll(t[2]);angles_.set_coefficient_limit(angle_coefficient_limit_);}else if(t[1]=="proof_scope"){if(t[2]=="global")ancestry_scope_=false;else if(t[2]=="ancestry")ancestry_scope_=true;else throw std::runtime_error("option proof_scope is global or ancestry");}else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);}
+    else if(op=="option"){
+      if(t.size()<3)throw std::runtime_error("option expects a name and value");
+      if(t[1]=="symmetry"){
+        need(4);symmetry_enabled_=true;symmetry_first_=t[2];symmetry_second_=t[3];
+      } else {
+        need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit"){angle_coefficient_limit_=std::stoll(t[2]);angles_.set_coefficient_limit(angle_coefficient_limit_);}else if(t[1]=="proof_scope"){if(t[2]=="global")ancestry_scope_=false;else if(t[2]=="ancestry")ancestry_scope_=true;else throw std::runtime_error("option proof_scope is global or ancestry");}else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);
+      }
+    }
     else if(op=="triangle") initial_triangle(t);
     else if(op=="quadrilateral") initial_quadrilateral(t,false);
     else if(op=="cyclic_quad") initial_quadrilateral(t,true);
@@ -1398,7 +1466,8 @@ class Engine {
           std::vector<int> quadruple{x.points[0],x.points[1],x.points[2],x.points[i]};
           std::set<int>w;if(proves_cyclic(quadruple,&w)){
             auto before=cyclic_facts_.size();
-            add_cyclic(x.points[0],x.points[1],x.points[2],x.points[i],"converse cyclic angle theorem");
+            add_cyclic(x.points[0],x.points[1],x.points[2],x.points[i],
+                       "converse cyclic angle theorem "+point_list(quadruple));
             changed|=cyclic_facts_.size()!=before;
           }
         }
@@ -1606,33 +1675,48 @@ class Engine {
     return false;
   }
   void expand_points(){
+    establish_symmetry();
     auto room=[&]{return !max_points_||points_.size()<max_points_;};
     // Without a point cap, retain the finite known-root scan for explicitly
     // supplied lines and circles. With a cap, known-root intersections join the
     // randomized construction mix below.
     if(auto_line_circle_&&!max_points_){
-      std::size_t line_count=lines_.size(),circle_count=circles_.size();
-      for(std::size_t l=0;l<line_count;++l){if(lines_[l].origin=="segment")continue;
+      std::map<int,std::string> scan_lines;
+      for(const auto&[name,id]:line_id_)if(!name.empty()&&name[0]!='@')scan_lines.emplace(id,name);
+      std::size_t circle_count=circles_.size();
+      for(const auto&[line_id,line_name]:scan_lines){std::size_t l=static_cast<std::size_t>(line_id);
         for(std::size_t c=0;c<circle_count;++c){auto on_line=line_points_[l],on_circle=circle_points_[c];
           for(int k:on_line)if(std::find(on_circle.begin(),on_circle.end(),k)!=on_circle.end()){
             const auto&ln=lines_[l];const auto&cc=circles_[c];long double dx=ln.b,dy=-ln.a;
             if(std::fabs(-2*dot(points_[k].x-cc.center.x,points_[k].y-cc.center.y,dx,dy))<=EPS)continue;
-            std::string name="X("+lines_[l].name+","+circles_[c].name+","+points_[k].name+")";
-            if(!point_id_.count(name))execute({"intersection_lc_known",name,lines_[l].name,circles_[c].name,points_[k].name},0);
+            std::string name="X("+line_name+","+circles_[c].name+","+points_[k].name+")";
+            if(!point_id_.count(name)){
+              std::size_t begin=construction_commands_.size();
+              execute({"intersection_lc_known",name,line_name,circles_[c].name,points_[k].name},0);
+              std::size_t end=construction_commands_.size();if(symmetry_enabled_)replay_symmetric_commands(begin,end);
+            }
           }}
       }return;
     }
     if(!max_points_||!room())return;
     std::size_t failed=0,max_failed=std::max<std::size_t>(2000,100*max_points_);
     while(room()&&failed<max_failed){
+      if(symmetry_enabled_&&max_points_-points_.size()<2)break;
+      std::size_t batch_begin=construction_commands_.size(),point_count=points_.size();
       // Auxiliary constructions are deliberately interleaved. They make line
       // intersections and known-root circle intersections available without
       // letting the supporting-object count grow independently of the point cap.
       if(named_lines().size()<2||std::uniform_int_distribution<int>(0,3)(generation_rng_)==0)create_random_line();
       if(named_circles().empty()||std::uniform_int_distribution<int>(0,7)(generation_rng_)==0)create_random_circle();
-      if(create_random_point())failed=0;else ++failed;
+      bool created=create_random_point();std::size_t batch_end=construction_commands_.size();
+      if(symmetry_enabled_)replay_symmetric_commands(batch_begin,batch_end);
+      if(created||points_.size()>point_count)failed=0;else ++failed;
     }
-    if(room())std::cerr<<"warning: random construction search exhausted at "<<points_.size()<<" of "<<max_points_<<" points\n";
+    if(room()){
+      if(symmetry_enabled_&&max_points_-points_.size()<2)
+        std::cerr<<"warning: symmetry pairing stopped at "<<points_.size()<<" of "<<max_points_<<" points\n";
+      else std::cerr<<"warning: random construction search exhausted at "<<points_.size()<<" of "<<max_points_<<" points\n";
+    }
   }
 
   static long long quant(long double x, long double step=1e-8L) { return std::llround(x/step); }
@@ -1719,6 +1803,98 @@ class Engine {
     return out;
   }
   std::string point_list(const std::vector<int>& p) const {std::string s;for(std::size_t i=0;i<p.size();++i){if(i)s+=",";s+=points_[p[i]].name;}return s;}
+  std::set<std::string> required_initial_points(const std::vector<int>& candidate)const{
+    ProducerMap producer;
+    for(std::size_t i=0;i<construction_commands_.size();++i)
+      for(auto output:command_outputs(construction_commands_[i]))producer.emplace(std::move(output),i);
+    std::vector<ObjectRef> todo;todo.reserve(candidate.size());
+    for(int p:candidate)todo.push_back({ObjectKind::point,points_[static_cast<std::size_t>(p)].name});
+    std::set<ObjectRef> seen;std::set<std::string> required;
+    while(!todo.empty()){
+      ObjectRef object=std::move(todo.back());todo.pop_back();
+      if(!seen.insert(object).second)continue;
+      if(object.kind==ObjectKind::point&&initial_point_names_.count(object.name)){
+        required.insert(object.name);continue;
+      }
+      auto found=producer.find(object);if(found==producer.end())continue;
+      for(auto input:command_inputs(construction_commands_[found->second]))todo.push_back(std::move(input));
+    }
+    return required;
+  }
+  std::string unused_initial_annotation(const std::vector<int>& candidate)const{
+    auto required=required_initial_points(candidate);std::string names;
+    for(const auto&name:initial_point_names_)if(!required.count(name)){
+      if(!names.empty())names+=",";
+      names+=name;
+    }
+    return names.empty()?"":" [unused_initial="+names+"]";
+  }
+  bool numerically_parallel(int a,int b,int c,int d)const{
+    long double ux=points_[b].x-points_[a].x,uy=points_[b].y-points_[a].y;
+    long double vx=points_[d].x-points_[c].x,vy=points_[d].y-points_[c].y;
+    return std::fabs(ux*vy-uy*vx)<=10*EPS*(1+std::hypotl(ux,uy)*std::hypotl(vx,vy));
+  }
+  bool numerically_right_angle(int vertex,int a,int b)const{
+    long double ux=points_[a].x-points_[vertex].x,uy=points_[a].y-points_[vertex].y;
+    long double vx=points_[b].x-points_[vertex].x,vy=points_[b].y-points_[vertex].y;
+    return std::fabs(ux*vx+uy*vy)<=10*EPS*(1+std::hypotl(ux,uy)*std::hypotl(vx,vy));
+  }
+  std::string cyclic_shape_annotation(const Candidate&candidate)const{
+    if(candidate.kind!="concyclic"||candidate.points.size()<4)return "";
+    constexpr std::size_t annotation_limit=16;
+    std::set<std::vector<int>> trapezoid_sets,right_sets;
+    std::map<long long,std::vector<std::pair<int,int>>> chords;
+    for(std::size_t i=0;i<candidate.points.size();++i)for(std::size_t j=i+1;j<candidate.points.size();++j){
+      int a=candidate.points[i],b=candidate.points[j];long double angle=std::atan2(points_[b].y-points_[a].y,points_[b].x-points_[a].x);
+      while(angle<0)angle+=PI;
+      while(angle>=PI)angle-=PI;
+      chords[quant(angle)].push_back({a,b});
+    }
+    // On one circle, disjoint parallel chords are opposite sides of an
+    // isosceles trapezoid. Direction buckets avoid enumerating all quadruples.
+    for(const auto&[_,same_direction]:chords)for(std::size_t i=0;i<same_direction.size();++i)
+      for(std::size_t j=i+1;j<same_direction.size();++j){auto [a,b]=same_direction[i];auto [c,d]=same_direction[j];
+        if(a==c||a==d||b==c||b==d||!numerically_parallel(a,b,c,d))continue;
+        std::vector<int> q{a,b,c,d};std::sort(q.begin(),q.end());trapezoid_sets.insert(std::move(q));
+      }
+    // A pair is a diameter exactly when every other circle point sees it at a
+    // right angle. Scan endpoint pairs and combine the certified right vertices.
+    for(std::size_t i=0;i<candidate.points.size();++i)for(std::size_t j=i+1;j<candidate.points.size();++j){
+      int a=candidate.points[i],b=candidate.points[j];std::vector<int> right;
+      for(int vertex:candidate.points)if(vertex!=a&&vertex!=b&&numerically_right_angle(vertex,a,b))right.push_back(vertex);
+      for(std::size_t u=0;u<right.size();++u)for(std::size_t v=u+1;v<right.size();++v){
+        std::vector<int> q{a,b,right[u],right[v]};std::sort(q.begin(),q.end());right_sets.insert(std::move(q));
+      }
+    }
+    auto describe=[&](const std::set<std::vector<int>>&sets){std::vector<std::string> values;std::size_t count=0;
+      for(const auto&q:sets){if(count++==annotation_limit){values.push_back("...");break;}values.push_back(point_list(q));}return values;};
+    auto trapezoids=describe(trapezoid_sets),right_pairs=describe(right_sets);
+    auto join=[](const std::vector<std::string>&values){std::string out;for(const auto&value:values){if(!out.empty())out+=";";out+=value;}return out;};
+    std::string result;
+    if(!trapezoids.empty())result+=" [isosceles_trapezoid="+join(trapezoids)+"]";
+    if(!right_pairs.empty())result+=" [two_right_angles="+join(right_pairs)+"]";
+    return result;
+  }
+  std::string candidate_core(const Candidate&candidate)const{
+    return candidate.kind+"("+point_list(candidate.points)+")";
+  }
+  std::string symmetric_core(const Candidate&candidate)const{
+    if(!symmetry_enabled_)return "";
+    std::vector<int> dual;dual.reserve(candidate.points.size());
+    for(int p:candidate.points){ObjectRef object{ObjectKind::point,points_[static_cast<std::size_t>(p)].name};
+      auto found=symmetry_dual_.find(object);if(found==symmetry_dual_.end())return "";
+      dual.push_back(pid(found->second.name));
+    }
+    std::sort(dual.begin(),dual.end());dual.erase(std::unique(dual.begin(),dual.end()),dual.end());
+    return candidate.kind+"("+point_list(dual)+")";
+  }
+  std::string candidate_statement(const Candidate&candidate,const std::set<std::string>&all_candidates)const{
+    auto core=candidate_core(candidate),dual=symmetric_core(candidate);std::string symmetry;
+    if(!dual.empty()&&dual==core)symmetry=" [symmetry=self]";
+    else if(!dual.empty()&&all_candidates.count(dual))symmetry=" [symmetry_with="+dual+"]";
+    return candidate.kind+"("+point_list(candidate.points)+")"+
+           symmetry+unused_initial_annotation(candidate.points)+cyclic_shape_annotation(candidate);
+  }
   void print_proof(const std::string& label,const std::set<int>& w)const{std::cout<<"PROVED "<<label<<"\n";int step=1;for(auto&s:angles_.explain(w))std::cout<<"  "<<step++<<". "<<s<<"\n";if(step==1)std::cout<<"  1. direct known fact\n";}
   bool ancestry_proves(const std::string&kind,const std::vector<int>&candidate)const{
     std::map<ObjectRef,std::size_t> producer;
@@ -1778,15 +1954,17 @@ class Engine {
     auto ls=detect_lines();
     if(!classify){
       auto cs=detect_circles();
-      for(const auto&x:ls){auto statement="collinear("+point_list(x.points)+")";
+      std::set<std::string> keys;for(const auto&x:ls)keys.insert(candidate_core(x));for(const auto&x:cs)keys.insert(candidate_core(x));
+      for(const auto&x:ls){auto statement=candidate_statement(x,keys);
         std::cout<<"NONTRIVIAL "<<statement<<'\n';if(show_easy_)std::cout<<"EASY "<<statement<<'\n';}
-      for(const auto&x:cs){auto statement="concyclic("+point_list(x.points)+")";
+      for(const auto&x:cs){auto statement=candidate_statement(x,keys);
         std::cout<<"NONTRIVIAL "<<statement<<'\n';if(show_easy_)std::cout<<"EASY "<<statement<<'\n';}
       return;
     }
     std::size_t easy=0,hard=0;
-    for(auto&x:ls){std::set<int>w;bool e=ancestry_scope_?ancestry_proves("collinear",x.points):proves_collinear(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL collinear("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY collinear("<<point_list(x.points)<<")\n";}
-    for(auto&x:circle_cache_){std::set<int>w;bool e=ancestry_scope_?ancestry_proves("concyclic",x.points):proves_cyclic(x.points,&w);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL concyclic("<<point_list(x.points)<<")\n";}if(e&&show_easy_)std::cout<<"EASY concyclic("<<point_list(x.points)<<")\n";}
+    std::set<std::string> keys;for(const auto&x:ls)keys.insert(candidate_core(x));for(const auto&x:circle_cache_)keys.insert(candidate_core(x));
+    for(auto&x:ls){std::set<int>w;bool e=ancestry_scope_?ancestry_proves("collinear",x.points):proves_collinear(x.points,&w);auto statement=candidate_statement(x,keys);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL "<<statement<<"\n";}if(e&&show_easy_)std::cout<<"EASY "<<statement<<"\n";}
+    for(auto&x:circle_cache_){std::set<int>w;bool e=ancestry_scope_?ancestry_proves("concyclic",x.points):proves_cyclic(x.points,&w);auto statement=candidate_statement(x,keys);if(e)++easy;else{++hard;std::cout<<"NONTRIVIAL "<<statement<<"\n";}if(e&&show_easy_)std::cout<<"EASY "<<statement<<"\n";}
     std::cout<<"summary nontrivial="<<hard<<" filtered_easy="<<easy<<"\n";
   }
 };
@@ -1838,6 +2016,41 @@ std::vector<std::string> point_listing(const std::string& report){
   return out;
 }
 
+std::set<std::string> directly_reported_points(const std::set<std::string>& report_lines){
+  std::set<std::string> out;
+  for(const auto&line:report_lines){
+    auto open=line.find('('),close=line.find(')',open==std::string::npos?0:open+1);
+    if(open==std::string::npos||close==std::string::npos)continue;
+    std::istringstream names(line.substr(open+1,close-open-1));std::string name;
+    while(std::getline(names,name,','))if(!name.empty())out.insert(name);
+  }
+  return out;
+}
+
+std::string listed_point_name(const std::string&definition){
+  constexpr std::size_t prefix=6;auto end=definition.find(" = ",prefix);
+  return end==std::string::npos?"":definition.substr(prefix,end-prefix);
+}
+
+std::size_t generated_point_count(const std::string&report){
+  std::istringstream in(report);std::string line;
+  while(std::getline(in,line))if(line.rfind("points=",0)==0){
+    auto end=line.find(' ',7);return std::stoull(line.substr(7,end-7));
+  }
+  return 0;
+}
+
+std::string symmetry_group_key(const std::string&line){
+  constexpr std::string_view marker="[symmetry_with=";auto marked=line.find(marker);
+  if(marked==std::string::npos)return "~"+line;
+  auto partner_begin=marked+marker.size(),partner_end=line.find(']',partner_begin);
+  auto prefix_end=line.find(' '),annotation=line.find(" [",prefix_end+1);
+  if(partner_end==std::string::npos||prefix_end==std::string::npos)return "~"+line;
+  std::string own=line.substr(prefix_end+1,(annotation==std::string::npos?line.size():annotation)-(prefix_end+1));
+  std::string partner=line.substr(partner_begin,partner_end-partner_begin);
+  return line.substr(0,prefix_end)+" "+std::min(own,partner);
+}
+
 } // namespace
 
 int main(int argc,char**argv){try{
@@ -1850,20 +2063,29 @@ int main(int argc,char**argv){try{
   if(settings.prove){std::cout<<execute_once(input,settings.seed,settings.seed);return 0;}
   std::set<std::string> common;
   std::vector<std::string> common_points;
+  std::size_t total_points=0;
   for(int trial=0;trial<settings.trials;++trial){
     std::uint64_t trial_seed=settings.seed+0x9e3779b97f4a7c15ULL*static_cast<std::uint64_t>(trial+1);
     std::string report=execute_once(input,trial_seed,settings.seed,trial==0);
     auto current=findings(report,settings.show_easy);auto current_points=point_listing(report);
-    if(trial==0){common=std::move(current);common_points=std::move(current_points);}
+    if(trial==0){common=std::move(current);common_points=std::move(current_points);total_points=generated_point_count(report);}
     else {
       std::set<std::string> both;std::set_intersection(common.begin(),common.end(),current.begin(),current.end(),std::inserter(both,both.end()));common=std::move(both);
       std::set<std::string> present(current_points.begin(),current_points.end());
       common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string& p){return !present.count(p);}),common_points.end());
     }
   }
-  std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed<<"\npoints="<<common_points.size()<<"\n";
+  auto reported_points=directly_reported_points(common);
+  common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string&definition){
+    return !reported_points.count(listed_point_name(definition));
+  }),common_points.end());
+  std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed<<"\ngenerated_points="<<total_points<<" points="<<common_points.size()<<"\n";
   for(const auto& point:common_points)std::cout<<point<<'\n';
-  for(const auto& line:common)std::cout<<line<<'\n';
+  std::vector<std::string> ordered(common.begin(),common.end());
+  std::sort(ordered.begin(),ordered.end(),[](const std::string&a,const std::string&b){
+    auto ga=symmetry_group_key(a),gb=symmetry_group_key(b);return ga==gb?a<b:ga<gb;
+  });
+  for(const auto& line:ordered)std::cout<<line<<'\n';
   std::cout<<"summary stable_coincidences="<<common.size()<<"\n";
   return 0;
 }catch(const std::exception&e){std::cerr<<"geogen: "<<e.what()<<'\n';return 1;}}

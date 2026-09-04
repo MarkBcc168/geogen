@@ -1,0 +1,8 @@
+mode generate
+option trials 1
+option seed 42
+option max_points 15
+option show_easy 1
+option symmetry B C
+
+triangle A B C

@@ -40,6 +40,7 @@ option max_points 30            # automatically expand to at most 30 points
 option line_circle_intersections 1 # default: enable known-root circle intersections
 option angle_coefficient_limit 10000 # maximum accepted proof coefficient
 option proof_scope ancestry     # prove each candidate from its definitions only
+option symmetry B C             # pair every construction under B <-> C
 
 triangle A B C
 quadrilateral A B C D
@@ -71,6 +72,14 @@ commands needed by those definitions. Unrelated generated auxiliary points are
 therefore unavailable to its proof. This mode is intentionally conservative and
 may leave more coincidences unproved; it never promotes an unproved global
 candidate to an easy one merely from numerical incidence.
+
+`option symmetry B C` enables swap-symmetric generation. The two names must be
+distinct points of the initial configuration. Every explicit and automatic
+construction is replayed with `B` and `C` interchanged, recursively using the
+duals of its input objects. A dual output receives an `S$`-prefixed stable name
+unless it numerically aliases an existing point or line. Detected statements
+are annotated with `symmetry=self` or `symmetry_with=...`; paired statements are
+printed next to each other.
 
 The advanced `point P x y` command remains available for diagnostics, but a
 fixed-coordinate point changes the problem and should not normally be used in a
@@ -113,12 +122,14 @@ trials; only the initial coordinates vary. Consequently every trial tests the
 same named construction graph. Set `option line_circle_intersections 0` to
 exclude both known-root circle-intersection methods.
 
-Every report lists the resulting points as parseable symbolic assignments,
-without trial-specific coordinates. Supporting line and circle constructions are
-expanded recursively, so each record is self-contained:
+Every report lists parseable symbolic assignments, without trial-specific
+coordinates, for the points which occur directly in a reported coincidence.
+`generated_points` is the size of the full constructed configuration, while
+`points` is the number of displayed definitions. Supporting line and circle
+constructions are expanded recursively, so each displayed record is self-contained:
 
 ```text
-points=7
+generated_points=30 points=7
 POINT A = initial(A)
 POINT B = initial(B)
 POINT C = initial(C)
@@ -136,8 +147,24 @@ inside later generated definitions. Thus the prompt's `E` and `F` remain `E` and
 `F`, rather than being repeatedly expanded into their line intersections; their
 own `POINT E = ...` and `POINT F = ...` records still show their definitions.
 
-The symbolic names are identical across random trials. In generation mode, only
-points successfully constructed in every trial are retained in the final list.
+The symbolic names are identical across random trials. Definitions of auxiliary
+points which occur only inside another point's expression are intentionally not
+printed; the expression still contains everything needed to recover them. In
+generation mode, only coincidences and directly involved points which survive
+every trial are retained.
+
+Each coincidence also reports strict construction-ancestry information. For
+example, `[unused_initial=C]` means none of its displayed points depends on the
+initial point `C`. This deliberately does not perform semantic
+reparameterization: if `I=incenter(A,B,C)`, then a later construction from
+`B,I,C` still depends on `A`, because treating `I` as an arbitrary free vertex
+would describe a different family of configurations.
+
+Numerical appeal hints are attached to cyclic candidates. An
+`isosceles_trapezoid=...` annotation identifies four circle points with a pair
+of parallel opposite sides; `two_right_angles=...` identifies four points in
+which two vertices see the same diameter at right angles. These are discovery
+hints and do not claim that the symbolic prover established those extra facts.
 
 Before insertion, every constructed point is compared with all existing points
 using a scale-aware numerical tolerance. A coincident result is discarded: it is
@@ -222,7 +249,9 @@ prove_equal_distance A B C D
 ```
 
 The last three mean `AB || CD`, `AB perpendicular CD`, and `AB = CD`. A
-successful angular proof lists the construction/theorem facts used. See
+successful angular proof lists the construction/theorem facts used. Cyclic
+converse steps include the relevant quadrilateral names, for example
+`converse cyclic angle theorem A,B,C,D`. See
 [`examples/orthocenter.geogen`](examples/orthocenter.geogen).
 
 ## Search and filtering design

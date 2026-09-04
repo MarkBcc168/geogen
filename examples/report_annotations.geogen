@@ -1,0 +1,18 @@
+mode generate
+option trials 1
+option show_easy 1
+
+triangle A B C
+midpoint M A B
+incenter I A B C
+
+# A and R are mirror images across the perpendicular bisector of BC. Hence
+# AR is parallel to BC and BACR is an isosceles trapezoid.
+perp_bisector p B C
+reflection_line R A p
+
+# F and D see the same diameter AC under right angles.
+line AB A B
+line BC B C
+foot F C AB
+foot D A BC
