@@ -34,11 +34,11 @@ mode generate
 mode prove
 option show_easy 0             # print/suppress coincidences proved by the chase
 option show_all_points 0       # print every generated point definition
+option symmetric_coincidences_only 0 # keep only swap-invariant statements
 option circle_budget 25000000  # skip general scan above this many triples
 option trials 5                # independent random realizations in generate mode
 option seed 20260828            # reproducible pseudorandom seed
 option max_points 30            # automatically expand to at most 30 points
-option line_circle_intersections 1 # default: enable known-root circle intersections
 option angle_coefficient_limit 10000 # maximum accepted proof coefficient
 option proof_scope ancestry     # prove each candidate from its definitions only
 option symmetry B C             # pair every construction under B <-> C
@@ -88,6 +88,11 @@ each other. If numerical construction or maximal-set grouping prevents the
 partner from being detected, it is still printed with
 `symmetric_partner=not_detected` rather than being suppressed.
 
+Set `option symmetric_coincidences_only 1` to retain only swap-invariant
+`symmetry=self` statements. This requires `option symmetry P Q`. Its focused
+point listing always contains only points occurring directly in the retained
+statements, even if `show_all_points` is also enabled.
+
 Symmetry does not alter the primary random sampler. With the same seed, the
 primary construction sequence is the same prefix as a nonsymmetric run; after
 each primary construction, its swapped dual is appended without consuming a
@@ -134,8 +139,8 @@ therefore four times less likely to be selected. Initial and shallow points,
 lines, and circles are strongly preferred over deeply nested ones.
 The symbolic construction RNG uses `option seed` and is shared by all numerical
 trials; only the initial coordinates vary. Consequently every trial tests the
-same named construction graph. Set `option line_circle_intersections 0` to
-exclude both known-root circle-intersection methods.
+same named construction graph. Use the per-construction switches below to
+disable either known-root circle-intersection method.
 
 Set `option show_all_points 1` to print the full generated point list. This does
 not affect construction, coincidence detection, or proof filtering; it only
@@ -267,7 +272,6 @@ For example, the following automatically creates a point named
 
 ```text
 mode generate
-option line_circle_intersections 1
 triangle A B C
 incenter I A B C
 line secant A I

@@ -400,7 +400,6 @@ class Engine {
   std::set<std::string> input_point_names_;
   std::set<std::string> initial_point_names_;
   bool record_commands_=true,ancestry_scope_=false;
-  bool show_all_points_=false;
   std::set<std::string> disabled_constructions_;
   bool symmetry_enabled_=false,symmetry_ready_=false;
   std::string symmetry_first_,symmetry_second_;
@@ -409,7 +408,6 @@ class Engine {
   std::int64_t angle_coefficient_limit_=10000;
   std::vector<std::array<int,3>> initial_triangles_;
   bool prove_mode_ = false, show_easy_ = false;
-  bool auto_line_circle_=true;
   std::size_t circle_budget_ = 25000000;
   std::size_t max_points_=0;
   std::size_t automatic_serial_=0;
@@ -924,7 +922,7 @@ class Engine {
           if(enabled)disabled_constructions_.erase(construction);else disabled_constructions_.insert(construction);
         }
       } else {
-        need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="show_all_points")show_all_points_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit"){angle_coefficient_limit_=std::stoll(t[2]);angles_.set_coefficient_limit(angle_coefficient_limit_);}else if(t[1]=="proof_scope"){if(t[2]=="global")ancestry_scope_=false;else if(t[2]=="ancestry")ancestry_scope_=true;else throw std::runtime_error("option proof_scope is global or ancestry");}else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);
+        need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="show_all_points"||t[1]=="symmetric_coincidences_only"){(void)std::stoi(t[2]);}else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit"){angle_coefficient_limit_=std::stoll(t[2]);angles_.set_coefficient_limit(angle_coefficient_limit_);}else if(t[1]=="proof_scope"){if(t[2]=="global")ancestry_scope_=false;else if(t[2]=="ancestry")ancestry_scope_=true;else throw std::runtime_error("option proof_scope is global or ancestry");}else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);
       }
     }
     else if(op=="triangle") initial_triangle(t);
@@ -1698,7 +1696,6 @@ class Engine {
       }return false;
     }
     if(kind==8){
-      if(!auto_line_circle_)return false;
       auto line_pool=named_lines();if(line_pool.empty()){create_random_line();line_pool=named_lines();}if(line_pool.empty())return false;
       for(int attempt=0;attempt<32;++attempt){int line=depth_weighted_pick(line_pool,line_depth_),circle=-1,k=-1;auto circle_pool=named_circles();
         // Prefer an existing circle--especially one of the automatically
@@ -1719,7 +1716,6 @@ class Engine {
         execute({"intersection_lc_known",name,lines_[line].name,circles_[circle].name,points_[k].name},0);return finish(depth);
       }return false;
     }
-    if(!auto_line_circle_)return false;
     for(int attempt=0;attempt<32;++attempt){
       int c1=-1,c2=-1,k=-1;auto pool=named_circles();
       if(pool.size()>=2){c1=depth_weighted_pick(pool,circle_depth_);c2=depth_weighted_pick(pool,circle_depth_);if(c1==c2)continue;std::vector<int> common;
@@ -1769,7 +1765,7 @@ class Engine {
     // Without a point cap, retain the finite known-root scan for explicitly
     // supplied lines and circles. With a cap, known-root intersections join the
     // randomized construction mix below.
-    if(auto_line_circle_&&construction_enabled("intersection_lc_known")&&!max_points_){
+    if(construction_enabled("intersection_lc_known")&&!max_points_){
       std::map<int,std::string> scan_lines;
       for(const auto&[name,id]:line_id_)if(!name.empty()&&name[0]!='@'&&
           (!symmetry_enabled_||symmetry_primary_lines_.count(id)))scan_lines.emplace(id,name);
@@ -2068,7 +2064,7 @@ class Engine {
 namespace {
 
 struct RunSettings {
-  bool prove=false,show_easy=false,show_all_points=false,symmetry=false;
+  bool prove=false,show_easy=false,show_all_points=false,symmetry=false,symmetric_only=false;
   int trials=5;
   std::uint64_t seed=0x47454f47454eULL;
 };
@@ -2084,10 +2080,12 @@ RunSettings read_settings(const std::string& input) {
       else if(b=="seed")s.seed=std::stoull(c);
       else if(b=="show_easy")s.show_easy=std::stoi(c)!=0;
       else if(b=="show_all_points")s.show_all_points=std::stoi(c)!=0;
+      else if(b=="symmetric_coincidences_only")s.symmetric_only=std::stoi(c)!=0;
       else if(b=="symmetry")s.symmetry=true;
     }
   }
   if(s.trials<1||s.trials>100)throw std::runtime_error("option trials must be between 1 and 100");
+  if(s.symmetric_only&&!s.symmetry)throw std::runtime_error("option symmetric_coincidences_only requires option symmetry");
   return s;
 }
 
@@ -2099,10 +2097,11 @@ std::string execute_once(const std::string& input,std::uint64_t seed,
   return captured.str();
 }
 
-std::set<std::string> findings(const std::string& report,bool show_easy) {
+std::set<std::string> findings(const std::string& report,bool show_easy,bool symmetric_only) {
   std::set<std::string> out;std::istringstream in(report);std::string line;
-  while(std::getline(in,line))if(line.rfind("NONTRIVIAL ",0)==0||
-      (show_easy&&line.rfind("EASY ",0)==0))out.insert(line);
+  while(std::getline(in,line))if((line.rfind("NONTRIVIAL ",0)==0||
+      (show_easy&&line.rfind("EASY ",0)==0))&&
+      (!symmetric_only||line.find("[symmetry=self]")!=std::string::npos))out.insert(line);
   return out;
 }
 
@@ -2164,7 +2163,7 @@ int main(int argc,char**argv){try{
   for(int trial=0;trial<settings.trials;++trial){
     std::uint64_t trial_seed=settings.seed+0x9e3779b97f4a7c15ULL*static_cast<std::uint64_t>(trial+1);
     std::string report=execute_once(input,trial_seed,settings.seed,trial==0);
-    auto current=findings(report,settings.show_easy);auto current_points=point_listing(report);
+    auto current=findings(report,settings.show_easy,settings.symmetric_only);auto current_points=point_listing(report);
     if(trial==0){common=std::move(current);common_points=std::move(current_points);total_points=generated_point_count(report);}
     else {
       std::set<std::string> both;std::set_intersection(common.begin(),common.end(),current.begin(),current.end(),std::inserter(both,both.end()));common=std::move(both);
@@ -2172,7 +2171,7 @@ int main(int argc,char**argv){try{
       common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string& p){return !present.count(p);}),common_points.end());
     }
   }
-  if(!settings.show_all_points){auto reported_points=directly_reported_points(common);
+  if(settings.symmetric_only||!settings.show_all_points){auto reported_points=directly_reported_points(common);
     common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string&definition){
       return !reported_points.count(listed_point_name(definition));
     }),common_points.end());

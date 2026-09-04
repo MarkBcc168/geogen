@@ -1,6 +1,5 @@
 mode generate
 option trials 3
-option line_circle_intersections 1
 triangle A B C
 incenter I A B C
 line secant A I
