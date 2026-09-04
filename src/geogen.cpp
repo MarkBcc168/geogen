@@ -400,9 +400,12 @@ class Engine {
   std::set<std::string> input_point_names_;
   std::set<std::string> initial_point_names_;
   bool record_commands_=true,ancestry_scope_=false;
+  bool show_all_points_=false;
+  std::set<std::string> disabled_constructions_;
   bool symmetry_enabled_=false,symmetry_ready_=false;
   std::string symmetry_first_,symmetry_second_;
   std::map<ObjectRef,ObjectRef> symmetry_dual_;
+  std::set<int> symmetry_primary_points_,symmetry_primary_lines_,symmetry_primary_circles_;
   std::int64_t angle_coefficient_limit_=10000;
   std::vector<std::array<int,3>> initial_triangles_;
   bool prove_mode_ = false, show_easy_ = false;
@@ -421,6 +424,24 @@ class Engine {
       "circumcenter","orthocenter","incenter","circle","circumcircle",
       "incircle","intersection_lc_known","intersection_cc_known"};
     return operations.count(op)!=0;
+  }
+  bool construction_enabled(const std::string&op)const{return !disabled_constructions_.count(op);}
+  static const std::set<std::string>& automatic_construction_types(){
+    static const std::set<std::string> operations{
+      "midpoint","reflection_point","reflection_line","foot","circumcenter",
+      "orthocenter","incenter","intersection_ll","intersection_lc_known",
+      "intersection_cc_known","line","perp_bisector","parallel",
+      "perpendicular","angle_bisector","circle","circumcircle","incircle"};
+    return operations;
+  }
+  static std::string canonical_construction_option(std::string op){
+    static const std::map<std::string,std::string> aliases{
+      {"point_reflection","reflection_point"},{"line_reflection","reflection_line"},
+      {"perpendicular_bisector","perp_bisector"},{"line_line_intersection","intersection_ll"},
+      {"line_circle_intersection","intersection_lc_known"},
+      {"circle_circle_intersection","intersection_cc_known"}};
+    if(auto found=aliases.find(op);found!=aliases.end())return found->second;
+    return op;
   }
   static std::vector<ObjectRef> command_outputs(const std::vector<std::string>&t){
     const auto&op=t[0];std::vector<ObjectRef> out;
@@ -452,6 +473,17 @@ class Engine {
     else if(object.kind==ObjectKind::line)object.name=lines_[static_cast<std::size_t>(lid(object.name))].name;
     return object;
   }
+  void mark_primary_output(const ObjectRef&output){
+    auto object=canonical_object(output);
+    if(object.kind==ObjectKind::point)symmetry_primary_points_.insert(pid(object.name));
+    else if(object.kind==ObjectKind::line)symmetry_primary_lines_.insert(lid(object.name));
+    else symmetry_primary_circles_.insert(cid(object.name));
+  }
+  void mark_primary_commands(std::size_t begin,std::size_t end){
+    if(!symmetry_enabled_)return;
+    for(std::size_t i=begin;i<end;++i)
+      for(const auto&output:command_outputs(construction_commands_[i]))mark_primary_output(output);
+  }
   std::string dual_name(const ObjectRef&object)const{
     ObjectRef canonical=canonical_object(object);auto found=symmetry_dual_.find(canonical);
     if(found==symmetry_dual_.end())throw std::runtime_error("symmetry has no dual for "+object.name);
@@ -481,6 +513,13 @@ class Engine {
     for(std::size_t i=0;i<source_outputs.size();++i){
       auto a=canonical_object(source_outputs[i]),b=canonical_object(dual_outputs[i]);
       symmetry_dual_[a]=b;symmetry_dual_[b]=a;
+      if(a.kind==ObjectKind::point){int ai=pid(a.name),bi=pid(b.name);int depth=point_depth_[static_cast<std::size_t>(ai)];
+        if(points_[static_cast<std::size_t>(bi)].name==dual_outputs[i].name)point_depth_[static_cast<std::size_t>(bi)]=depth;
+        else point_depth_[static_cast<std::size_t>(bi)]=std::min(point_depth_[static_cast<std::size_t>(bi)],depth);
+      } else if(a.kind==ObjectKind::line){int ai=lid(a.name),bi=lid(b.name);int depth=line_depth_[static_cast<std::size_t>(ai)];
+        if(lines_[static_cast<std::size_t>(bi)].name==dual_outputs[i].name)line_depth_[static_cast<std::size_t>(bi)]=depth;
+        else line_depth_[static_cast<std::size_t>(bi)]=std::min(line_depth_[static_cast<std::size_t>(bi)],depth);
+      } else circle_depth_[static_cast<std::size_t>(cid(b.name))]=circle_depth_[static_cast<std::size_t>(cid(a.name))];
     }
   }
   void replay_symmetric_commands(std::size_t begin,std::size_t end){
@@ -499,6 +538,7 @@ class Engine {
     symmetry_dual_[{ObjectKind::point,symmetry_first_}]={ObjectKind::point,symmetry_second_};
     symmetry_dual_[{ObjectKind::point,symmetry_second_}]={ObjectKind::point,symmetry_first_};
     std::size_t explicit_end=construction_commands_.size();
+    mark_primary_commands(0,explicit_end);
     replay_symmetric_commands(0,explicit_end);symmetry_ready_=true;
   }
 
@@ -875,8 +915,16 @@ class Engine {
       if(t.size()<3)throw std::runtime_error("option expects a name and value");
       if(t[1]=="symmetry"){
         need(4);symmetry_enabled_=true;symmetry_first_=t[2];symmetry_second_=t[3];
+      } else if(t[1]=="construction"){
+        need(4);auto construction=canonical_construction_option(t[2]);bool enabled=std::stoi(t[3])!=0;
+        if(construction=="all"){
+          if(enabled)disabled_constructions_.clear();else disabled_constructions_=automatic_construction_types();
+        } else {
+          if(!automatic_construction_types().count(construction))throw std::runtime_error("unknown automatic construction "+t[2]);
+          if(enabled)disabled_constructions_.erase(construction);else disabled_constructions_.insert(construction);
+        }
       } else {
-        need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit"){angle_coefficient_limit_=std::stoll(t[2]);angles_.set_coefficient_limit(angle_coefficient_limit_);}else if(t[1]=="proof_scope"){if(t[2]=="global")ancestry_scope_=false;else if(t[2]=="ancestry")ancestry_scope_=true;else throw std::runtime_error("option proof_scope is global or ancestry");}else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);
+        need(3);if(t[1]=="show_easy")show_easy_=std::stoi(t[2])!=0;else if(t[1]=="show_all_points")show_all_points_=std::stoi(t[2])!=0;else if(t[1]=="circle_budget")circle_budget_=std::stoull(t[2]);else if(t[1]=="angle_coefficient_limit"){angle_coefficient_limit_=std::stoll(t[2]);angles_.set_coefficient_limit(angle_coefficient_limit_);}else if(t[1]=="proof_scope"){if(t[2]=="global")ancestry_scope_=false;else if(t[2]=="ancestry")ancestry_scope_=true;else throw std::runtime_error("option proof_scope is global or ancestry");}else if(t[1]=="line_circle_intersections")auto_line_circle_=std::stoi(t[2])!=0;else if(t[1]=="max_points"){max_points_=std::stoull(t[2]);if(max_points_>5000)throw std::runtime_error("option max_points cannot exceed 5000");if(max_points_&&points_.size()>max_points_)throw std::runtime_error("option max_points is below the number of points already declared");}else if(t[1]=="trials"||t[1]=="seed"){}else throw std::runtime_error("unknown option "+t[1]);
       }
     }
     else if(op=="triangle") initial_triangle(t);
@@ -1530,13 +1578,18 @@ class Engine {
     return items[choose(generation_rng_)];
   }
   int random_point(){
-    std::vector<int> ids(points_.size());std::iota(ids.begin(),ids.end(),0);
+    std::vector<int> ids;
+    if(symmetry_enabled_)ids.assign(symmetry_primary_points_.begin(),symmetry_primary_points_.end());
+    else {ids.resize(points_.size());std::iota(ids.begin(),ids.end(),0);}
     return depth_weighted_pick(ids,point_depth_);
   }
   std::vector<int> random_distinct_points(std::size_t count,bool noncollinear=false){
-    if(points_.size()<count)return {};
+    std::vector<int> primary;
+    if(symmetry_enabled_)primary.assign(symmetry_primary_points_.begin(),symmetry_primary_points_.end());
+    else {primary.resize(points_.size());std::iota(primary.begin(),primary.end(),0);}
+    if(primary.size()<count)return {};
     for(int attempt=0;attempt<64;++attempt){
-      std::vector<int> available(points_.size());std::iota(available.begin(),available.end(),0);std::vector<int> out;
+      std::vector<int> available=primary,out;
       while(out.size()<count){int p=depth_weighted_pick(available,point_depth_);out.push_back(p);available.erase(std::find(available.begin(),available.end(),p));}
       if(!noncollinear||count<3||std::fabs(cross(points_[out[0]],points_[out[1]],points_[out[2]]))>
           EPS*scale(points_[out[0]],points_[out[1]],points_[out[2]]))return out;
@@ -1545,24 +1598,28 @@ class Engine {
   }
   std::vector<int> named_lines()const{
     std::vector<int> out;for(std::size_t i=0;i<lines_.size();++i)
-      if(lines_[i].origin!="segment"&&!lines_[i].name.empty()&&lines_[i].name[0]!='@')out.push_back(static_cast<int>(i));
+      if(lines_[i].origin!="segment"&&!lines_[i].name.empty()&&lines_[i].name[0]!='@'&&
+         (!symmetry_enabled_||symmetry_primary_lines_.count(static_cast<int>(i))))out.push_back(static_cast<int>(i));
     return out;
   }
   std::vector<int> named_circles()const{
     std::vector<int> out;for(std::size_t i=0;i<circles_.size();++i)
-      if(!circles_[i].name.empty()&&circles_[i].name[0]!='@')out.push_back(static_cast<int>(i));
+      if(!circles_[i].name.empty()&&circles_[i].name[0]!='@'&&
+         (!symmetry_enabled_||symmetry_primary_circles_.count(static_cast<int>(i))))out.push_back(static_cast<int>(i));
     return out;
   }
   int create_random_line(){
     if(points_.size()<2)return -1;
     for(int attempt=0;attempt<64;++attempt){
       int kind=std::uniform_int_distribution<int>(0,4)(generation_rng_);
+      const char*selected=kind==0?"line":kind==1?"perp_bisector":kind==2?"parallel":kind==3?"perpendicular":"angle_bisector";
+      if(!construction_enabled(selected))continue;
       auto pair=random_distinct_points(2);if(pair.empty())return -1;
       std::string name;int depth=1+std::max(point_depth_[pair[0]],point_depth_[pair[1]]);
       if(kind==0){name=automatic_name("L");execute({"line",name,points_[pair[0]].name,points_[pair[1]].name},0);}
       else if(kind==1){name=automatic_name("PB");execute({"perp_bisector",name,points_[pair[0]].name,points_[pair[1]].name},0);}
       else if(kind==2||kind==3){
-        auto pool=named_lines();if(pool.empty()){kind=0;name=automatic_name("L");execute({"line",name,points_[pair[0]].name,points_[pair[1]].name},0);}
+        auto pool=named_lines();if(pool.empty()){if(!construction_enabled("line"))continue;kind=0;name=automatic_name("L");execute({"line",name,points_[pair[0]].name,points_[pair[1]].name},0);}
         else {int base=depth_weighted_pick(pool,line_depth_);int p=random_point();depth=1+std::max(point_depth_[p],line_depth_[base]);
           name=automatic_name(kind==2?"Par":"Perp");execute({kind==2?"parallel":"perpendicular",name,points_[p].name,lines_[base].name},0);}
       } else {
@@ -1573,6 +1630,7 @@ class Engine {
       int id=lid(name);
       if(lines_[static_cast<std::size_t>(id)].name==name)line_depth_[static_cast<std::size_t>(id)]=depth;
       else line_depth_[static_cast<std::size_t>(id)]=std::min(line_depth_[static_cast<std::size_t>(id)],depth);
+      if(symmetry_enabled_)symmetry_primary_lines_.insert(id);
       return id;
     }
     return -1;
@@ -1586,24 +1644,33 @@ class Engine {
       int kind=std::uniform_int_distribution<int>(0,5)(generation_rng_);
       std::string name;int depth=0;
       if(kind<=3){
+        if(!construction_enabled("circumcircle"))continue;
         auto triple=random_distinct_points(3,true);if(triple.empty())continue;
         depth=1+std::max({point_depth_[triple[0]],point_depth_[triple[1]],point_depth_[triple[2]]});
         name=automatic_name("Circ");execute({"circumcircle",name,points_[triple[0]].name,points_[triple[1]].name,points_[triple[2]].name},0);
       } else if(kind==4||incenter_facts_.empty()) {
+        if(!construction_enabled("circle"))continue;
         auto pair=random_distinct_points(2);int o=pair[0],p=pair[1];depth=1+std::max(point_depth_[o],point_depth_[p]);
         name=automatic_name("Circle");execute({"circle",name,points_[o].name,points_[p].name},0);
       } else {
+        if(!construction_enabled("incircle"))continue;
         const auto&f=incenter_facts_[std::uniform_int_distribution<std::size_t>(0,incenter_facts_.size()-1)(generation_rng_)];
         depth=1+std::max({point_depth_[f.center],point_depth_[f.a],point_depth_[f.b],point_depth_[f.c]});
         name=automatic_name("Inc");execute({"incircle",name,points_[f.center].name,points_[f.a].name,points_[f.b].name,points_[f.c].name},0);
       }
-      int id=cid(name);circle_depth_[static_cast<std::size_t>(id)]=depth;return id;
+      int id=cid(name);circle_depth_[static_cast<std::size_t>(id)]=depth;
+      if(symmetry_enabled_)symmetry_primary_circles_.insert(id);
+      return id;
     }
     return -1;
   }
   bool create_random_point(){
     if(points_.size()<2)return false;
     int kind=std::uniform_int_distribution<int>(0,9)(generation_rng_);
+    const char*selected=kind==0?"midpoint":kind==1?"reflection_point":kind==2?"circumcenter":
+      kind==3?"orthocenter":kind==4?"incenter":kind==5?"reflection_line":kind==6?"foot":
+      kind==7?"intersection_ll":kind==8?"intersection_lc_known":"intersection_cc_known";
+    if(!construction_enabled(selected))return false;
     std::size_t before=points_.size();std::string name;
     auto finish=[&](int depth){if(points_.size()>before)point_depth_[static_cast<std::size_t>(pid(name))]=depth;return points_.size()>before;};
     if(kind==0||kind==1){
@@ -1642,7 +1709,7 @@ class Engine {
           if(!common.empty()){circle=candidate;k=common[std::uniform_int_distribution<std::size_t>(0,common.size()-1)(generation_rng_)];}}
         // If no existing pair has a known root, create a circumcircle through a
         // point already on the line and two additional low-depth points.
-        if(circle<0){const auto&on=line_points_[static_cast<std::size_t>(line)];if(on.empty())continue;k=on[std::uniform_int_distribution<std::size_t>(0,on.size()-1)(generation_rng_)];
+        if(circle<0){if(!construction_enabled("circumcircle"))return false;const auto&on=line_points_[static_cast<std::size_t>(line)];if(on.empty())continue;k=on[std::uniform_int_distribution<std::size_t>(0,on.size()-1)(generation_rng_)];
           auto pair=random_distinct_points(2);if(pair.empty()||pair[0]==k||pair[1]==k||std::fabs(cross(points_[k],points_[pair[0]],points_[pair[1]]))<=EPS*scale(points_[k],points_[pair[0]],points_[pair[1]]))continue;
           std::string circle_name=automatic_name("Circ");int circle_depth=1+std::max({point_depth_[k],point_depth_[pair[0]],point_depth_[pair[1]]});
           execute({"circumcircle",circle_name,points_[k].name,points_[pair[0]].name,points_[pair[1]].name},0);circle=cid(circle_name);circle_depth_[static_cast<std::size_t>(circle)]=circle_depth;}
@@ -1658,7 +1725,7 @@ class Engine {
       if(pool.size()>=2){c1=depth_weighted_pick(pool,circle_depth_);c2=depth_weighted_pick(pool,circle_depth_);if(c1==c2)continue;std::vector<int> common;
         for(int p:circle_points_[static_cast<std::size_t>(c1)])if(std::find(circle_points_[static_cast<std::size_t>(c2)].begin(),circle_points_[static_cast<std::size_t>(c2)].end(),p)!=circle_points_[static_cast<std::size_t>(c2)].end())common.push_back(p);
         if(!common.empty())k=common[std::uniform_int_distribution<std::size_t>(0,common.size()-1)(generation_rng_)];}
-      if(k<0){k=random_point();auto first=random_distinct_points(2),second=random_distinct_points(2);if(first.empty()||second.empty())continue;
+      if(k<0){if(!construction_enabled("circumcircle"))return false;k=random_point();auto first=random_distinct_points(2),second=random_distinct_points(2);if(first.empty()||second.empty())continue;
         if(first[0]==k||first[1]==k||second[0]==k||second[1]==k||std::fabs(cross(points_[k],points_[first[0]],points_[first[1]]))<=EPS*scale(points_[k],points_[first[0]],points_[first[1]])||std::fabs(cross(points_[k],points_[second[0]],points_[second[1]]))<=EPS*scale(points_[k],points_[second[0]],points_[second[1]]))continue;
         std::string c1_name=automatic_name("Circ"),c2_name=automatic_name("Circ");
         execute({"circumcircle",c1_name,points_[k].name,points_[first[0]].name,points_[first[1]].name},0);execute({"circumcircle",c2_name,points_[k].name,points_[second[0]].name,points_[second[1]].name},0);
@@ -1691,7 +1758,7 @@ class Engine {
     for(const auto&[input_depth,a,b]:pairs){
       std::size_t before=points_.size(),begin=construction_commands_.size();
       std::string name=automatic_name("SymM");execute({"midpoint",name,points_[a].name,points_[b].name},0);
-      std::size_t end=construction_commands_.size();replay_symmetric_commands(begin,end);
+      std::size_t end=construction_commands_.size();mark_primary_commands(begin,end);replay_symmetric_commands(begin,end);
       if(points_.size()>before){point_depth_[static_cast<std::size_t>(pid(name))]=1+input_depth;return true;}
     }
     return false;
@@ -1702,12 +1769,13 @@ class Engine {
     // Without a point cap, retain the finite known-root scan for explicitly
     // supplied lines and circles. With a cap, known-root intersections join the
     // randomized construction mix below.
-    if(auto_line_circle_&&!max_points_){
+    if(auto_line_circle_&&construction_enabled("intersection_lc_known")&&!max_points_){
       std::map<int,std::string> scan_lines;
-      for(const auto&[name,id]:line_id_)if(!name.empty()&&name[0]!='@')scan_lines.emplace(id,name);
+      for(const auto&[name,id]:line_id_)if(!name.empty()&&name[0]!='@'&&
+          (!symmetry_enabled_||symmetry_primary_lines_.count(id)))scan_lines.emplace(id,name);
       std::size_t circle_count=circles_.size();
       for(const auto&[line_id,line_name]:scan_lines){std::size_t l=static_cast<std::size_t>(line_id);
-        for(std::size_t c=0;c<circle_count;++c){auto on_line=line_points_[l],on_circle=circle_points_[c];
+        for(std::size_t c=0;c<circle_count;++c){if(symmetry_enabled_&&!symmetry_primary_circles_.count(static_cast<int>(c)))continue;auto on_line=line_points_[l],on_circle=circle_points_[c];
           for(int k:on_line)if(std::find(on_circle.begin(),on_circle.end(),k)!=on_circle.end()){
             const auto&ln=lines_[l];const auto&cc=circles_[c];long double dx=ln.b,dy=-ln.a;
             if(std::fabs(-2*dot(points_[k].x-cc.center.x,points_[k].y-cc.center.y,dx,dy))<=EPS)continue;
@@ -1715,7 +1783,7 @@ class Engine {
             if(!point_id_.count(name)){
               std::size_t begin=construction_commands_.size();
               execute({"intersection_lc_known",name,line_name,circles_[c].name,points_[k].name},0);
-              std::size_t end=construction_commands_.size();if(symmetry_enabled_)replay_symmetric_commands(begin,end);
+              std::size_t end=construction_commands_.size();mark_primary_commands(begin,end);if(symmetry_enabled_)replay_symmetric_commands(begin,end);
             }
           }}
       }return;
@@ -1731,6 +1799,7 @@ class Engine {
       if(named_lines().size()<2||std::uniform_int_distribution<int>(0,3)(generation_rng_)==0)create_random_line();
       if(named_circles().empty()||std::uniform_int_distribution<int>(0,7)(generation_rng_)==0)create_random_circle();
       bool created=create_random_point();std::size_t batch_end=construction_commands_.size();
+      mark_primary_commands(batch_begin,batch_end);
       if(symmetry_enabled_)replay_symmetric_commands(batch_begin,batch_end);
       if(created||points_.size()>point_count)failed=0;else ++failed;
     }
@@ -1999,7 +2068,7 @@ class Engine {
 namespace {
 
 struct RunSettings {
-  bool prove=false,show_easy=false,symmetry=false;
+  bool prove=false,show_easy=false,show_all_points=false,symmetry=false;
   int trials=5;
   std::uint64_t seed=0x47454f47454eULL;
 };
@@ -2014,6 +2083,7 @@ RunSettings read_settings(const std::string& input) {
       if(b=="trials")s.trials=std::stoi(c);
       else if(b=="seed")s.seed=std::stoull(c);
       else if(b=="show_easy")s.show_easy=std::stoi(c)!=0;
+      else if(b=="show_all_points")s.show_all_points=std::stoi(c)!=0;
       else if(b=="symmetry")s.symmetry=true;
     }
   }
@@ -2102,10 +2172,11 @@ int main(int argc,char**argv){try{
       common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string& p){return !present.count(p);}),common_points.end());
     }
   }
-  auto reported_points=directly_reported_points(common);
-  common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string&definition){
-    return !reported_points.count(listed_point_name(definition));
-  }),common_points.end());
+  if(!settings.show_all_points){auto reported_points=directly_reported_points(common);
+    common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string&definition){
+      return !reported_points.count(listed_point_name(definition));
+    }),common_points.end());
+  }
   std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed
            <<"\ngenerated_points="<<total_points<<" reported_points="<<common_points.size()
            <<" hidden_points="<<(total_points-common_points.size())<<"\n";

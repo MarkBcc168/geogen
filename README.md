@@ -33,6 +33,7 @@ for the initial triangle or quadrilateral.
 mode generate
 mode prove
 option show_easy 0             # print/suppress coincidences proved by the chase
+option show_all_points 0       # print every generated point definition
 option circle_budget 25000000  # skip general scan above this many triples
 option trials 5                # independent random realizations in generate mode
 option seed 20260828            # reproducible pseudorandom seed
@@ -41,6 +42,8 @@ option line_circle_intersections 1 # default: enable known-root circle intersect
 option angle_coefficient_limit 10000 # maximum accepted proof coefficient
 option proof_scope ancestry     # prove each candidate from its definitions only
 option symmetry B C             # pair every construction under B <-> C
+option construction incenter 0  # disable one automatic construction
+option construction all 1       # enable/disable all automatic constructions
 
 triangle A B C
 quadrilateral A B C D
@@ -85,6 +88,14 @@ each other. If numerical construction or maximal-set grouping prevents the
 partner from being detected, it is still printed with
 `symmetric_partner=not_detected` rather than being suppressed.
 
+Symmetry does not alter the primary random sampler. With the same seed, the
+primary construction sequence is the same prefix as a nonsymmetric run; after
+each primary construction, its swapped dual is appended without consuming a
+random choice. Dual points, lines, and circles inherit the exact depth of their
+primary objects, and only the primary pool is sampled subsequently. Thus the
+existing `4^(-depth)` preference is unchanged rather than accidentally treating
+deep dual expressions as depth zero.
+
 The advanced `point P x y` command remains available for diagnostics, but a
 fixed-coordinate point changes the problem and should not normally be used in a
 universal triangle configuration.
@@ -125,6 +136,29 @@ The symbolic construction RNG uses `option seed` and is shared by all numerical
 trials; only the initial coordinates vary. Consequently every trial tests the
 same named construction graph. Set `option line_circle_intersections 0` to
 exclude both known-root circle-intersection methods.
+
+Set `option show_all_points 1` to print the full generated point list. This does
+not affect construction, coincidence detection, or proof filtering; it only
+changes which `POINT` records appear in the final report.
+
+Automatic construction types can be switched independently with
+`option construction TYPE 0|1`. All are enabled by default. The canonical type
+names are:
+
+```text
+midpoint reflection_point reflection_line foot
+circumcenter orthocenter incenter
+intersection_ll intersection_lc_known intersection_cc_known
+line perp_bisector parallel perpendicular angle_bisector
+circle circumcircle incircle
+```
+
+For readability, `point_reflection`, `line_reflection`,
+`perpendicular_bisector`, `line_line_intersection`,
+`line_circle_intersection`, and `circle_circle_intersection` are accepted as
+aliases. `option construction all 0` disables every automatic type; later lines
+can selectively re-enable individual types. These controls apply only to random
+generation. An explicit construction command in the input is always honored.
 
 Every report lists parseable symbolic assignments, without trial-specific
 coordinates, for the points which occur directly in a reported coincidence.
