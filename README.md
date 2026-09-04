@@ -124,12 +124,13 @@ exclude both known-root circle-intersection methods.
 
 Every report lists parseable symbolic assignments, without trial-specific
 coordinates, for the points which occur directly in a reported coincidence.
-`generated_points` is the size of the full constructed configuration, while
-`points` is the number of displayed definitions. Supporting line and circle
+`generated_points` is the size of the full constructed configuration,
+`reported_points` is the number of displayed definitions, and `hidden_points`
+counts generated points omitted by the coincidence-only filter. Supporting line and circle
 constructions are expanded recursively, so each displayed record is self-contained:
 
 ```text
-generated_points=30 points=7
+generated_points=30 reported_points=7 hidden_points=23
 POINT A = initial(A)
 POINT B = initial(B)
 POINT C = initial(C)

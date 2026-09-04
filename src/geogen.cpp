@@ -1674,6 +1674,28 @@ class Engine {
     }
     return false;
   }
+  bool create_self_dual_point(){
+    // When exactly one cap slot remains, an ordinary construction/dual pair
+    // cannot fit. The midpoint of a swapped point pair is fixed by the swap,
+    // so its dual construction aliases the same new point and consumes one
+    // slot while preserving construction-level symmetry.
+    std::vector<std::tuple<int,int,int>> pairs;
+    for(std::size_t p=0;p<points_.size();++p){
+      ObjectRef object{ObjectKind::point,points_[p].name};auto found=symmetry_dual_.find(object);
+      if(found==symmetry_dual_.end())continue;
+      int q=pid(found->second.name);
+      if(static_cast<int>(p)>=q)continue;
+      pairs.push_back({std::max(point_depth_[p],point_depth_[static_cast<std::size_t>(q)]),static_cast<int>(p),q});
+    }
+    std::sort(pairs.begin(),pairs.end());
+    for(const auto&[input_depth,a,b]:pairs){
+      std::size_t before=points_.size(),begin=construction_commands_.size();
+      std::string name=automatic_name("SymM");execute({"midpoint",name,points_[a].name,points_[b].name},0);
+      std::size_t end=construction_commands_.size();replay_symmetric_commands(begin,end);
+      if(points_.size()>before){point_depth_[static_cast<std::size_t>(pid(name))]=1+input_depth;return true;}
+    }
+    return false;
+  }
   void expand_points(){
     establish_symmetry();
     auto room=[&]{return !max_points_||points_.size()<max_points_;};
@@ -1701,7 +1723,7 @@ class Engine {
     if(!max_points_||!room())return;
     std::size_t failed=0,max_failed=std::max<std::size_t>(2000,100*max_points_);
     while(room()&&failed<max_failed){
-      if(symmetry_enabled_&&max_points_-points_.size()<2)break;
+      if(symmetry_enabled_&&max_points_-points_.size()<2){if(create_self_dual_point())continue;break;}
       std::size_t batch_begin=construction_commands_.size(),point_count=points_.size();
       // Auxiliary constructions are deliberately interleaved. They make line
       // intersections and known-root circle intersections available without
@@ -2079,7 +2101,9 @@ int main(int argc,char**argv){try{
   common_points.erase(std::remove_if(common_points.begin(),common_points.end(),[&](const std::string&definition){
     return !reported_points.count(listed_point_name(definition));
   }),common_points.end());
-  std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed<<"\ngenerated_points="<<total_points<<" points="<<common_points.size()<<"\n";
+  std::cout<<"GEOGEN REPORT\nrandom_trials="<<settings.trials<<" seed="<<settings.seed
+           <<"\ngenerated_points="<<total_points<<" reported_points="<<common_points.size()
+           <<" hidden_points="<<(total_points-common_points.size())<<"\n";
   for(const auto& point:common_points)std::cout<<point<<'\n';
   std::vector<std::string> ordered(common.begin(),common.end());
   std::sort(ordered.begin(),ordered.end(),[](const std::string&a,const std::string&b){

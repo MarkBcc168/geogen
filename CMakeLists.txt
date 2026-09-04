@@ -262,4 +262,12 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_generation.geogen)
   set_tests_properties(symmetric_generation_marks_pairs PROPERTIES
     PASS_REGULAR_EXPRESSION "symmetry_with=collinear.A,C,S\\$Foot\\$4")
+  add_test(NAME symmetric_foot_construction
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_foot.geogen)
+  set_tests_properties(symmetric_foot_construction PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT S\\$F = foot.C,line.A,B")
+  add_test(NAME symmetric_foot_coincidence_pair
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_foot.geogen)
+  set_tests_properties(symmetric_foot_coincidence_pair PROPERTIES
+    PASS_REGULAR_EXPRESSION "symmetry_with=collinear.A,B,S\\$F")
 endif()
