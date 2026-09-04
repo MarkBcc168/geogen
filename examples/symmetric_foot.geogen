@@ -1,0 +1,9 @@
+mode generate
+option trials 1
+option show_easy 1
+option symmetry B C
+
+triangle A B C
+line AB A B
+line AC A C
+foot F B AC

@@ -261,5 +261,25 @@ if(BUILD_TESTING)
   add_test(NAME symmetric_generation_marks_pairs
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_generation.geogen)
   set_tests_properties(symmetric_generation_marks_pairs PROPERTIES
-    PASS_REGULAR_EXPRESSION "symmetry_with=collinear.A,C,S\\$Foot\\$4")
+    PASS_REGULAR_EXPRESSION "symmetry=asymmetric.*symmetric_partner=collinear.A,C,S\\$Foot\\$4")
+  add_test(NAME symmetric_foot_construction
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_foot.geogen)
+  set_tests_properties(symmetric_foot_construction PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT S\\$F = foot.C,line.A,B")
+  add_test(NAME symmetric_foot_coincidence_pair
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_foot.geogen)
+  set_tests_properties(symmetric_foot_coincidence_pair PROPERTIES
+    PASS_REGULAR_EXPRESSION "symmetry=asymmetric.*symmetric_partner=collinear.A,B,S\\$F")
+  add_test(NAME show_all_generated_points
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/show_all_points.geogen)
+  set_tests_properties(show_all_generated_points PROPERTIES
+    PASS_REGULAR_EXPRESSION "generated_points=10 reported_points=10 hidden_points=0")
+  add_test(NAME disable_point_reflection_generation
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/construction_controls.geogen)
+  set_tests_properties(disable_point_reflection_generation PROPERTIES
+    FAIL_REGULAR_EXPRESSION "POINT Rp\\$")
+  add_test(NAME disable_incenter_generation
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/construction_controls.geogen)
+  set_tests_properties(disable_incenter_generation PROPERTIES
+    FAIL_REGULAR_EXPRESSION "POINT I\\$")
 endif()
