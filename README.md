@@ -36,7 +36,7 @@ option show_easy 0             # print/suppress coincidences proved by the chase
 option show_all_points 0       # print every generated point definition
 option symmetric_coincidences_only 0 # keep only swap-invariant statements
 option circle_budget 25000000  # skip general scan above this many triples
-option trials 5                # independent random realizations in generate mode
+option trials 5                # independent generated graphs, combined in one report
 option seed 20260828            # reproducible pseudorandom seed
 option max_points 30            # automatically expand to at most 30 points
 option angle_coefficient_limit 10000 # maximum accepted proof coefficient
@@ -51,20 +51,18 @@ cyclic_quad A B C D
 ```
 
 For every trial, `triangle` and `quadrilateral` generate a fresh nondegenerate
-generic realization. `cyclic_quad` generates four random points on a circle and
-immediately adds the full directed-angle relation for a cyclic quadrilateral.
-The seed is printed in the report so a run can be reproduced.
+generic realization and the random expander builds a different construction
+graph. `cyclic_quad` generates four random points on a circle and immediately
+adds the full directed-angle relation for a cyclic quadrilateral. Findings from
+all trials are combined into one report, making several moderate-size searches
+an alternative to one much more expensive large search. Automatically generated
+names are prefixed by `T1$`, `T2$`, and so on when more than one trial is used;
+input names remain shared. The seed printed in the report reproduces the entire
+combined run.
 
-In generation mode, a coincidence is emitted only if the same named point set is
-found in every trial. This makes accidental isosceles, right-angle, parallel, or
-concyclic behavior overwhelmingly unlikely. It remains randomized evidence, not
-a proof; `mode prove` uses the symbolic fact system for proof goals.
-
-The symbolic construction and theorem closure are identical across generic
-random realizations, so generation mode classifies coincidences during the first
-trial only. Later trials perform the numerical construction and coincidence
-scans, then intersect their findings with that classified set. This preserves
-the output while avoiding repeated angle-lattice proofs.
+Each emitted coincidence is numerically present in its generic trial and remains
+a conjecture until proved. `mode prove` uses only the symbolic fact system for
+explicit proof goals.
 
 By default, `option proof_scope global` lets the filter use every constructed
 point, matching the traditional full-configuration prover. The conservative
@@ -92,6 +90,9 @@ Set `option symmetric_coincidences_only 1` to retain only swap-invariant
 `symmetry=self` statements. This requires `option symmetry P Q`. Its focused
 point listing always contains only points occurring directly in the retained
 statements, even if `show_all_points` is also enabled.
+The cubic circle detector is pruned in this mode: it seeds circles only with a
+swapped point pair or with three individually fixed points, because every
+swap-invariant circle contains one of those patterns.
 
 Symmetry does not alter the primary random sampler. With the same seed, the
 primary construction sequence is the same prefix as a nonsymmetric run; after
@@ -137,9 +138,8 @@ Input choices use weights proportional to `4^(-depth)`, normalized to the
 shallowest currently available object. Each additional construction level is
 therefore four times less likely to be selected. Initial and shallow points,
 lines, and circles are strongly preferred over deeply nested ones.
-The symbolic construction RNG uses `option seed` and is shared by all numerical
-trials; only the initial coordinates vary. Consequently every trial tests the
-same named construction graph. Use the per-construction switches below to
+The symbolic construction RNG is derived reproducibly from `option seed`, with
+a different stream for each trial. Use the per-construction switches below to
 disable either known-root circle-intersection method.
 
 Set `option show_all_points 1` to print the full generated point list. This does
@@ -191,15 +191,16 @@ inside later generated definitions. Thus the prompt's `E` and `F` remain `E` and
 `F`, rather than being repeatedly expanded into their line intersections; their
 own `POINT E = ...` and `POINT F = ...` records still show their definitions.
 
-The symbolic names are identical across random trials. Definitions of auxiliary
-points which occur only inside another point's expression are intentionally not
-printed; the expression still contains everything needed to recover them. In
-generation mode, only coincidences and directly involved points which survive
-every trial are retained.
+Definitions of auxiliary points which occur only inside another point's
+expression are intentionally not printed; the expression still contains
+everything needed to recover them. In generation mode, only points directly
+involved in a reported coincidence are listed unless `show_all_points` is set.
 
-Each coincidence also reports strict construction-ancestry information. For
-example, `[unused_initial=C]` means none of its displayed points depends on the
-initial point `C`. This deliberately does not perform semantic
+Each coincidence also reports strict construction-ancestry information for
+every point supplied by the input, including explicitly constructed points such
+as `E` and `F`. For example, `[unused_initial=C,E]` means none of the statement's
+points or their definitions depends on input points `C` or `E`. The historical
+annotation name is retained for compatibility. This deliberately does not perform semantic
 reparameterization: if `I=incenter(A,B,C)`, then a later construction from
 `B,I,C` still depends on `A`, because treating `I` as an arbitrary free vertex
 would describe a different family of configurations.
@@ -209,6 +210,9 @@ Numerical appeal hints are attached to cyclic candidates. An
 of parallel opposite sides; `two_right_angles=...` identifies four points in
 which two vertices see the same diameter at right angles. These are discovery
 hints and do not claim that the symbolic prover established those extra facts.
+Reports sort self-symmetric statements first, followed by paired asymmetric,
+unpaired asymmetric, and nonsymmetric statements. Within each class, candidates
+carrying an isosceles-trapezoid or two-right-angles hint are placed last.
 
 Before insertion, every constructed point is compared with all existing points
 using a scale-aware numerical tolerance. A coincident result is discarded: it is
@@ -318,6 +322,8 @@ converse steps include the relevant quadrilateral names, for example
 - Declared circles are scanned in `O(n)`. General concyclicity uses a fixed-anchor
   circumcircle hash: `O(n^3)` time, `O(n^2)` peak memory, and no `O(n^4)` scan.
   `circle_budget` lets very large runs retain only declared-circle detection.
+  Symmetric-only mode reduces the seed scan to `O(p*n+s^3)`, where `p` is the
+  number of swapped point pairs and `s` the number of individually fixed points.
 - Directed line angles live modulo 180 degrees. For ordinary fact bases, an exact
   sparse integer-lattice basis tracks equations such as
   `angle(AB)+angle(CD)=angle(AD)+angle(BC)` without ever dividing a geometric
@@ -455,6 +461,6 @@ This is available as
 ## Numerical limits
 
 Discovery uses internally sampled `long double` coordinates with scale-aware
-validation after quantized hashing. A reported `NONTRIVIAL` statement has survived
-all configured random trials, but is still a conjecture: prove it using the
-independent prover, a stronger prover, or by hand.
+validation after quantized hashing. A reported `NONTRIVIAL` statement was found
+in one of the independently generated generic trials, but is still a conjecture:
+prove it using the independent prover, a stronger prover, or by hand.

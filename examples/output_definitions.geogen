@@ -1,6 +1,7 @@
 # Point reports include recursively expanded, parseable definitions.
 mode generate
 option trials 2
+option show_all_points 1
 triangle A B C
 line BC B C
 reflection_line X A BC

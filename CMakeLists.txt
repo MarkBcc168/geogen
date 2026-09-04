@@ -15,7 +15,7 @@ if(BUILD_TESTING)
   add_test(NAME sample_generate
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/midpoint_perpendicular.geogen)
   set_tests_properties(sample_generate PROPERTIES
-    PASS_REGULAR_EXPRESSION "generated_points=50")
+    PASS_REGULAR_EXPRESSION "generated_points=314")
   add_test(NAME sample_prove
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthocenter.geogen)
   set_tests_properties(sample_prove PROPERTIES
@@ -27,7 +27,7 @@ if(BUILD_TESTING)
   add_test(NAME sample_unproved_conjecture
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/unproved_concyclic.geogen)
   set_tests_properties(sample_unproved_conjecture PROPERTIES
-    PASS_REGULAR_EXPRESSION "stable_coincidences=0")
+    PASS_REGULAR_EXPRESSION "combined_coincidences=0")
   add_test(NAME no_illegal_angle_halving
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/no_angle_halving.geogen)
   set_tests_properties(no_illegal_angle_halving PROPERTIES
@@ -35,7 +35,7 @@ if(BUILD_TESTING)
   add_test(NAME adjustable_automatic_points
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_points.geogen)
   set_tests_properties(adjustable_automatic_points PROPERTIES
-    PASS_REGULAR_EXPRESSION "generated_points=10")
+    PASS_REGULAR_EXPRESSION "generated_points=24")
   add_test(NAME discard_coincident_points
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/coincident_points.geogen)
   set_tests_properties(discard_coincident_points PROPERTIES
@@ -77,7 +77,7 @@ if(BUILD_TESTING)
   add_test(NAME ancestry_scoped_filter
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/ancestry_scope.geogen)
   set_tests_properties(ancestry_scoped_filter PROPERTIES
-    PASS_REGULAR_EXPRESSION "summary stable_coincidences=")
+    PASS_REGULAR_EXPRESSION "summary combined_coincidences=")
   add_test(NAME random_generation_reaches_cap
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
   set_tests_properties(random_generation_reaches_cap PROPERTIES
@@ -242,6 +242,10 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/unused_initial.geogen)
   set_tests_properties(report_marks_unused_initial_points PROPERTIES
     PASS_REGULAR_EXPRESSION "unused_initial=C")
+  add_test(NAME report_marks_unused_explicit_input_points
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/unused_input_point.geogen)
+  set_tests_properties(report_marks_unused_explicit_input_points PROPERTIES
+    PASS_REGULAR_EXPRESSION "collinear.A,B,M.*unused_initial=C,E")
   add_test(NAME report_marks_isosceles_trapezoid
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/report_annotations.geogen)
   set_tests_properties(report_marks_isosceles_trapezoid PROPERTIES
@@ -292,4 +296,16 @@ if(BUILD_TESTING)
   set_tests_properties(symmetric_only_filters_point_listing PROPERTIES
     PASS_REGULAR_EXPRESSION "generated_points=5 reported_points=4 hidden_points=1"
     FAIL_REGULAR_EXPRESSION "POINT A =")
+  add_test(NAME independent_trials_combine_generated_graphs
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/combined_trials.geogen)
+  set_tests_properties(independent_trials_combine_generated_graphs PROPERTIES
+    PASS_REGULAR_EXPRESSION "generated_points=37 reported_points=37 hidden_points=0")
+  add_test(NAME independent_trials_namespace_points
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/combined_trials.geogen)
+  set_tests_properties(independent_trials_namespace_points PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT T1\\$")
+  add_test(NAME independent_trials_second_namespace
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/combined_trials.geogen)
+  set_tests_properties(independent_trials_second_namespace PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT T2\\$")
 endif()
