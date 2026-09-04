@@ -282,4 +282,14 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/construction_controls.geogen)
   set_tests_properties(disable_incenter_generation PROPERTIES
     FAIL_REGULAR_EXPRESSION "POINT I\\$")
+  add_test(NAME symmetric_only_filters_asymmetric_pairs
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_only.geogen)
+  set_tests_properties(symmetric_only_filters_asymmetric_pairs PROPERTIES
+    PASS_REGULAR_EXPRESSION "EASY concyclic.B,C,F,S\\$F.*symmetry=self"
+    FAIL_REGULAR_EXPRESSION "symmetry=asymmetric")
+  add_test(NAME symmetric_only_filters_point_listing
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_only.geogen)
+  set_tests_properties(symmetric_only_filters_point_listing PROPERTIES
+    PASS_REGULAR_EXPRESSION "generated_points=5 reported_points=4 hidden_points=1"
+    FAIL_REGULAR_EXPRESSION "POINT A =")
 endif()
