@@ -262,9 +262,14 @@ successful angular proof lists the construction/theorem facts used. See
   cached. Prime-field membership is tested using coefficient-only sparse rows;
   the more expensive original-fact combination is reconstructed only after a
   candidate is known to lie in both field spans.
+- Sparse angle rows and proof certificates are stored as sorted contiguous
+  vectors. Elimination combines two rows with a linear merge, while an
+  `unordered_map` still maps each pivot variable to its basis row. This avoids
+  per-coefficient tree allocation without sacrificing constant-time pivot-row
+  lookup or deterministic certificate ordering.
 - Profiling the 100-point generator attributes roughly 30% of samples to the
-  modular reducer as a whole, chiefly sparse-map traversal and certificate
-  updates rather than isolated multiplication. Residues therefore remain in
+  modular reducer as a whole, chiefly row merges and certificate updates rather
+  than isolated multiplication. Residues therefore remain in
   ordinary representation: converting the entire proof basis and certificates
   to Montgomery form did not have a sufficiently large measured target to
   justify the added representation and decoding complexity.

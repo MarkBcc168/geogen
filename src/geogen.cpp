@@ -148,10 +148,11 @@ Point circumcenter(const Point& a, const Point& b, const Point& c, std::string n
 class AngleSystem {
  public:
   using Integer=__int128_t;
-  using Coeff=std::map<int,Integer>;
+  using Coeff=std::vector<std::pair<int,Integer>>;
   struct Equation {Coeff c;std::set<int> reasons;};
 
  private:
+  using ModularCoeff=std::vector<std::pair<int,std::int64_t>>;
   static constexpr int HALF_TURN_COLUMN=1000000000;
   std::vector<Equation> rows_;
   std::set<Coeff> row_keys_;
@@ -160,16 +161,19 @@ class AngleSystem {
   mutable bool dirty_=true;
   mutable bool modular_mode_=false;
   struct ModularEquation {
-    std::map<int,std::int64_t> c;
-    std::map<int,std::int64_t> combination; // coefficients of original fact rows
+    ModularCoeff c;
+    ModularCoeff combination; // coefficients of original fact rows
   };
   static constexpr std::array<std::int64_t,2> MODULI{1000000007LL,1000000009LL};
   mutable std::vector<std::unordered_map<int,ModularEquation>> modular_basis_;
   std::int64_t coefficient_limit_=10000;
   std::vector<std::string> reason_text_;
 
-  static Integer coefficient(const Equation& e,int column){
-    auto it=e.c.find(column);return it==e.c.end()?Integer(0):it->second;
+  template<class Value>
+  static Value coefficient(const std::vector<std::pair<int,Value>>&row,int column){
+    auto it=std::lower_bound(row.begin(),row.end(),column,
+      [](const auto&entry,int key){return entry.first<key;});
+    return it==row.end()||it->first!=column?Value(0):it->second;
   }
   static Integer checked_multiply(Integer a,Integer b){
     Integer result;
@@ -183,12 +187,15 @@ class AngleSystem {
       throw std::overflow_error("angle lattice coefficient overflow");
     return result;
   }
-  static void add_scaled(Equation& x,const Equation& y,const Integer& f){
+  static void add_scaled(Equation&x,const Equation&y,const Integer&f){
     if(f==0)return;
-    for (auto [v, a] : y.c) {
-      Integer value=checked_add(x.c[v],checked_multiply(f,a));
-      if(value==0)x.c.erase(v);else x.c[v]=std::move(value);
+    Coeff merged;merged.reserve(x.c.size()+y.c.size());std::size_t i=0,j=0;
+    while(i<x.c.size()||j<y.c.size()){
+      if(j==y.c.size()||(i<x.c.size()&&x.c[i].first<y.c[j].first))merged.push_back(x.c[i++]);
+      else if(i==x.c.size()||y.c[j].first<x.c[i].first){Integer value=checked_multiply(f,y.c[j].second);if(value)merged.push_back({y.c[j].first,value});++j;}
+      else {Integer value=checked_add(x.c[i].second,checked_multiply(f,y.c[j].second));if(value)merged.push_back({x.c[i].first,value});++i;++j;}
     }
+    x.c=std::move(merged);
     x.reasons.insert(y.reasons.begin(), y.reasons.end());
   }
   static std::int64_t mod_norm(std::int64_t x,std::int64_t p){x%=p;if(x<0)x+=p;return x;}
@@ -196,41 +203,44 @@ class AngleSystem {
   static std::int64_t mod_power(std::int64_t a,std::int64_t e,std::int64_t p){std::int64_t r=1;while(e){if(e&1)r=mod_mul(r,a,p);a=mod_mul(a,a,p);e>>=1;}return r;}
   static ModularEquation modularized(const Equation&e,std::int64_t p){
     ModularEquation out;for(const auto&[v,a]:e.c){
-      std::int64_t value=mod_norm(static_cast<std::int64_t>(a%p),p);if(value)out.c[v]=value;}
+      std::int64_t value=mod_norm(static_cast<std::int64_t>(a%p),p);if(value)out.c.push_back({v,value});}
     return out;
   }
-  static void modular_add_scaled(ModularEquation&x,const ModularEquation&y,std::int64_t f,std::int64_t p){
+  static void modular_add_scaled(ModularCoeff&x,const ModularCoeff&y,std::int64_t f,std::int64_t p){
     if(!f)return;
-    for(auto[v,a]:y.c){auto it=x.c.find(v);auto old=it==x.c.end()?0:it->second;
-      auto value=mod_norm(old+mod_mul(f,a,p),p);if(value)x.c[v]=value;else if(it!=x.c.end())x.c.erase(it);}
-    for(auto[v,a]:y.combination){auto it=x.combination.find(v);auto old=it==x.combination.end()?0:it->second;
-      auto value=mod_norm(old+mod_mul(f,a,p),p);if(value)x.combination[v]=value;else if(it!=x.combination.end())x.combination.erase(it);}
+    ModularCoeff merged;merged.reserve(x.size()+y.size());std::size_t i=0,j=0;
+    while(i<x.size()||j<y.size()){
+      if(j==y.size()||(i<x.size()&&x[i].first<y[j].first))merged.push_back(x[i++]);
+      else if(i==x.size()||y[j].first<x[i].first){auto value=mod_mul(f,y[j].second,p);if(value)merged.push_back({y[j].first,value});++j;}
+      else {auto value=x[i].second+mod_mul(f,y[j].second,p);if(value>=p)value-=p;if(value)merged.push_back({x[i].first,value});++i;++j;}
+    }
+    x=std::move(merged);
+  }
+  static void modular_add_scaled(ModularEquation&x,const ModularEquation&y,std::int64_t f,std::int64_t p){
+    modular_add_scaled(x.c,y.c,f,p);
+    modular_add_scaled(x.combination,y.combination,f,p);
   }
   static void modular_reduce(ModularEquation&e,const std::unordered_map<int,ModularEquation>&basis,std::int64_t p){
-    while(!e.c.empty()){int pivot=e.c.begin()->first;auto it=basis.find(pivot);if(it==basis.end())break;modular_add_scaled(e,it->second,mod_norm(-e.c.begin()->second,p),p);}
+    while(!e.c.empty()){int pivot=e.c.front().first;auto it=basis.find(pivot);if(it==basis.end())break;modular_add_scaled(e,it->second,p-e.c.front().second,p);}
   }
   static bool modular_member(const Equation&e,const std::unordered_map<int,ModularEquation>&basis,std::int64_t p){
     auto row=modularized(e,p);
     while(!row.c.empty()){
-      int pivot=row.c.begin()->first;auto it=basis.find(pivot);if(it==basis.end())return false;
-      auto factor=mod_norm(-row.c.begin()->second,p);
-      for(auto[v,a]:it->second.c){auto jt=row.c.find(v);auto old=jt==row.c.end()?0:jt->second;
-        auto value=mod_norm(old+mod_mul(factor,a,p),p);
-        if(value)row.c[v]=value;else if(jt!=row.c.end())row.c.erase(jt);
-      }
+      int pivot=row.c.front().first;auto it=basis.find(pivot);if(it==basis.end())return false;
+      modular_add_scaled(row.c,it->second.c,p-row.c.front().second,p);
     }
     return true;
   }
   void modular_insert(const Equation&e,std::size_t mi,int fact_id)const{
-    auto p=MODULI[mi];auto row=modularized(e,p);row.combination[fact_id]=1;
+    auto p=MODULI[mi];auto row=modularized(e,p);row.combination.push_back({fact_id,1});
     modular_reduce(row,modular_basis_[mi],p);if(row.c.empty())return;
-    int pivot=row.c.begin()->first;auto inv=mod_power(row.c.begin()->second,p-2,p);
+    int pivot=row.c.front().first;auto inv=mod_power(row.c.front().second,p-2,p);
     for(auto&[_,a]:row.c)a=mod_mul(a,inv,p);
     for(auto&[_,a]:row.combination)a=mod_mul(a,inv,p);
     modular_basis_[mi][pivot]=std::move(row);
   }
   void rebuild_modular()const{
-    modular_basis_.assign(MODULI.size(),{});Equation period;period.c[HALF_TURN_COLUMN]=2;
+    modular_basis_.assign(MODULI.size(),{});Equation period;period.c.push_back({HALF_TURN_COLUMN,2});
     for(std::size_t mi=0;mi<MODULI.size();++mi){modular_insert(period,mi,-1);for(std::size_t i=0;i<rows_.size();++i)modular_insert(rows_[i],mi,static_cast<int>(i));}
     basis_.clear();modular_mode_=true;dirty_=false;
   }
@@ -238,12 +248,11 @@ class AngleSystem {
                             std::int64_t denominator){
     if(denominator==0||(2*numerator)%denominator!=0)
       throw std::runtime_error("angle constant is not an integral multiple of pi/2");
-    Equation e;
+    Equation e;e.c=c;
     // h=pi/2 is deliberately ordered after all line variables. Eliminating this
     // dense torsion column first causes catastrophic coefficient swell.
     Integer half_turns=(2*numerator)/denominator;
-    if(half_turns!=0)e.c[HALF_TURN_COLUMN]=-half_turns;
-    for(auto [v,a]:c)if(a!=0)e.c[v]=a;
+    if(half_turns!=0)e.c.push_back({HALF_TURN_COLUMN,-half_turns});
     return e;
   }
 
@@ -255,21 +264,21 @@ class AngleSystem {
     if(rows_.size()>120){rebuild_modular();return;}
     modular_mode_=false;
     std::vector<Equation> work=rows_;
-    Equation period;period.c[HALF_TURN_COLUMN]=2;work.push_back(std::move(period)); // pi=0
+    Equation period;period.c.push_back({HALF_TURN_COLUMN,2});work.push_back(std::move(period)); // pi=0
     std::size_t rank=0;std::set<int> occupied;
     for(const auto&row:work)for(const auto&[column,_]:row.c)occupied.insert(column);
     for(int col:occupied){if(rank>=work.size())break;
-      std::size_t chosen=rank;while(chosen<work.size()&&coefficient(work[chosen],col)==0)++chosen;
+      std::size_t chosen=rank;while(chosen<work.size()&&coefficient(work[chosen].c,col)==0)++chosen;
       if(chosen==work.size())continue;
       std::swap(work[rank],work[chosen]);
       for(std::size_t i=rank+1;i<work.size();++i){
-        while(coefficient(work[i],col)!=0){
-          Integer a=coefficient(work[rank],col),b=coefficient(work[i],col);
+        while(coefficient(work[i].c,col)!=0){
+          Integer a=coefficient(work[rank].c,col),b=coefficient(work[i].c,col);
           add_scaled(work[rank],work[i],-(a/b));
           std::swap(work[rank],work[i]);
         }
       }
-      if(coefficient(work[rank],col)<0)
+      if(coefficient(work[rank].c,col)<0)
         for(auto& [_,value]:work[rank].c)value=-value;
       ++rank;
     }
@@ -299,7 +308,8 @@ class AngleSystem {
   bool proves(const Coeff& c, std::int64_t num, std::int64_t den,
               std::set<int>* reasons = nullptr) const {
     Equation e=converted(c,num,den);
-    if(auto it=proven_cache_.find(e.c);it!=proven_cache_.end()){
+    Coeff query=e.c;
+    if(auto it=proven_cache_.find(query);it!=proven_cache_.end()){
       if(reasons)*reasons=it->second;
       return true;
     }
@@ -310,28 +320,28 @@ class AngleSystem {
       // small integer certificate only for successful candidates.
       for(std::size_t mi=0;mi<MODULI.size();++mi)
         if(!modular_member(e,modular_basis_[mi],MODULI[mi]))return false;
-      std::map<int,std::int64_t> expected;for(std::size_t mi=0;mi<MODULI.size();++mi){
+      ModularCoeff expected;for(std::size_t mi=0;mi<MODULI.size();++mi){
       auto p=MODULI[mi];auto row=modularized(e,p);modular_reduce(row,modular_basis_[mi],p);
-      std::map<int,std::int64_t> signed_coefficients;
-      for(auto[id,value]:row.combination){if(value>p/2)value-=p;if(std::llabs(value)>coefficient_limit_)return false;if(value)signed_coefficients[id]=value;}
+      ModularCoeff signed_coefficients;
+      for(auto[id,value]:row.combination){if(value>p/2)value-=p;if(std::llabs(value)>coefficient_limit_)return false;if(value)signed_coefficients.push_back({id,value});}
       if(mi==0)expected=std::move(signed_coefficients);else if(signed_coefficients!=expected)return false;
     }
       std::set<int> proof_reasons;
       for(const auto&[fact,coefficient]:expected)if(fact>=0&&coefficient)
         proof_reasons.insert(rows_[static_cast<std::size_t>(fact)].reasons.begin(),rows_[static_cast<std::size_t>(fact)].reasons.end());
-      proven_cache_[e.c]=proof_reasons;if(reasons)*reasons=std::move(proof_reasons);
+      proven_cache_[query]=proof_reasons;if(reasons)*reasons=std::move(proof_reasons);
       return true;
     }
     for(const auto& row:basis_){
       if(row.c.empty())continue;
-      int pivot=row.c.begin()->first;
-      Integer value=coefficient(e,pivot);if(value==0)continue;
-      Integer divisor=row.c.begin()->second;
+      int pivot=row.c.front().first;
+      Integer value=coefficient(e.c,pivot);if(value==0)continue;
+      Integer divisor=row.c.front().second;
       if(value%divisor!=0)return false;
       add_scaled(e,row,-(value/divisor));
     }
     if(!e.c.empty())return false;
-    proven_cache_[e.c]=e.reasons;if(reasons)*reasons=std::move(e.reasons);
+    proven_cache_[query]=e.reasons;if(reasons)*reasons=std::move(e.reasons);
     return true;
   }
 
@@ -502,7 +512,14 @@ class Engine {
     segment_line_[key] = id; return id;
   }
   static AngleSystem::Coeff equation(std::initializer_list<std::pair<int,int>> xs) {
-    AngleSystem::Coeff c; for (auto [v,a] : xs) { c[v] += a; if (!c[v]) c.erase(v); } return c;
+    std::vector<std::pair<int,int>> terms(xs);std::sort(terms.begin(),terms.end());
+    AngleSystem::Coeff c;
+    for(auto [variable,coefficient]:terms){
+      if(!c.empty()&&c.back().first==variable)c.back().second+=coefficient;
+      else c.push_back({variable,coefficient});
+      if(c.back().second==0)c.pop_back();
+    }
+    return c;
   }
   std::pair<int,int> direction_find(int x){
     if(direction_parent_[static_cast<std::size_t>(x)]==x)return {x,0};
