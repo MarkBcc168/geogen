@@ -1,0 +1,13 @@
+mode prove
+triangle A B C
+midpoint D B C
+midpoint E A C
+midpoint F A B
+orthocenter H A B C
+line BC B C
+line EF E F
+perpendicular l D BC
+reflection_line H1 H l
+circle omega D E
+intersection_lc_known P EF omega E
+prove_concyclic E P H H1

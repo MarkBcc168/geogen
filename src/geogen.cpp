@@ -661,6 +661,22 @@ class Engine {
     auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y);
     return equal_lengths_.insert({x,y}).second;
   }
+  bool register_line_reflection(int image,int source,int line,const std::string&why){
+    if(image==source)return false;
+    bool changed=perpendicular_fact(segment(source,image),line,why);
+    for(int axis_point:line_points_[static_cast<std::size_t>(line)])
+      if(axis_point!=source&&axis_point!=image){
+        changed|=equal_length(axis_point,source,axis_point,image,why+" axis distances");
+        changed|=angles_.add(equation({{segment(axis_point,source),1},
+                                      {segment(axis_point,image),1},{line,-2}}),
+                             0,1,why+" angle symmetry");
+      }
+    for(const auto&f:line_reflection_facts_)
+      if(f.line==line&&((f.image==image&&f.source==source)||
+                       (f.image==source&&f.source==image)))return changed;
+    line_reflection_facts_.push_back({image,source,line});
+    return true;
+  }
   bool length_equal(int a,int b,int c,int d) const {
     auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y);
     if(x==y||equal_lengths_.count({x,y}))return true;
@@ -787,7 +803,7 @@ class Engine {
     else if(op=="perp_bisector"){need(4);int a=pid(t[2]),b=pid(t[3]);Point m{"",(points_[a].x+points_[b].x)/2,(points_[a].y+points_[b].y)/2,""};Line base=through("",points_[a],points_[b],"");Line l{t[1],base.b,-base.a,-(base.b*m.x-base.a*m.y),op};int id=add_line(l);perpendicular_fact(id,segment(a,b),"perpendicular bisector "+t[1]);perpendicular_bisectors_.push_back({id,a,b});}
     else if(op=="parallel"||op=="perpendicular"){need(4);int p=pid(t[2]),base=lid(t[3]);const Line& q=lines_[base];Line l;if(op=="parallel")l={t[1],q.a,q.b,-q.a*points_[p].x-q.b*points_[p].y,op};else l={t[1],q.b,-q.a,-q.b*points_[p].x+q.a*points_[p].y,op};int id=add_line(l);incidence(p,id,op+" through point");if(op=="parallel")parallel_fact(id,base,"parallel construction "+t[1]);else perpendicular_fact(id,base,"perpendicular construction "+t[1]);}
     else if(op=="angle_bisector"){need(5);int a=pid(t[2]),b=pid(t[3]),c=pid(t[4]);long double ux=points_[a].x-points_[b].x,uy=points_[a].y-points_[b].y,vx=points_[c].x-points_[b].x,vy=points_[c].y-points_[b].y;long double un=std::hypotl(ux,uy),vn=std::hypotl(vx,vy);Point q{"",points_[b].x+ux/un+vx/vn,points_[b].y+uy/un+vy/vn,""};int id=add_line(through(t[1],points_[b],q,op));incidence(b,id,"angle bisector through vertex");angles_.add(equation({{id,2},{segment(a,b),-1},{segment(b,c),-1}}),0,1,"angle bisector "+t[1]);angle_bisector_line_facts_.push_back({id,b});}
-    else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op}))return;int x=pid(t[1]);perpendicular_fact(segment(p,x),l,"line reflection "+t[1]);for(int axis_point:line_points_[static_cast<std::size_t>(l)])if(axis_point!=p&&axis_point!=x){equal_length(axis_point,p,axis_point,x,"reflection-axis equal distances");angles_.add(equation({{segment(axis_point,p),1},{segment(axis_point,x),1},{l,-2}}),0,1,"line-reflection angle symmetry "+t[1]);}line_reflection_facts_.push_back({x,p,l});}
+    else if(op=="reflection_line"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-2*q.a*d,points_[p].y-2*q.b*d,op}))return;int x=pid(t[1]);register_line_reflection(x,p,l,"line reflection "+t[1]);}
     else if(op=="reflection_point"){need(4);int p=pid(t[2]),o=pid(t[3]);if(!add_point({t[1],2*points_[o].x-points_[p].x,2*points_[o].y-points_[p].y,op}))return;int x=pid(t[1]);parallel_fact(segment(p,o),segment(p,x),"point reflection collinearity "+t[1]);inherit_collinearity(x,p,o,"point reflection incidence "+t[1]);equal_length(p,o,o,x,"point reflection lengths");register_midpoint_fact(o,p,x,"point reflection "+t[1]);}
     else if(op=="foot"){need(4);int p=pid(t[2]),l=lid(t[3]);auto&q=lines_[l];long double d=q.a*points_[p].x+q.b*points_[p].y+q.c;if(!add_point({t[1],points_[p].x-q.a*d,points_[p].y-q.b*d,op}))return;int x=pid(t[1]);incidence(x,l,"foot incidence "+t[1]);perpendicular_fact(segment(p,x),l,"foot "+t[1]);foot_facts_.push_back({x,p,l});}
     else if(op=="intersection_ll"){need(4);int a=lid(t[2]),b=lid(t[3]);if(!add_point(intersect(lines_[a],lines_[b],t[1],op)))return;int x=pid(t[1]);incidence(x,a,"intersection incidence "+t[1]+" on "+t[2]);incidence(x,b,"intersection incidence "+t[1]+" on "+t[3]);}
@@ -911,6 +927,96 @@ class Engine {
     for(const auto&[_,same]:directions)if(same.size()>=2)for(std::size_t i=1;i<same.size();++i)parallel_fact(same[0],same[i],"affine parallelism certificate");
   }
 
+  void register_formal_affine_facts(){
+    // Unlike the three-coordinate affine replay above, this version permits a
+    // metrically constructed point (such as a foot) to remain an independent
+    // formal vector. Midpoints and parallel-line intersections can still
+    // cancel that unknown vector and prove universal affine consequences.
+    using Expr=std::map<int,AffineScalar>;
+    struct FormalLine {Expr point,direction;};
+    auto add=[](Expr a,const Expr&b,AffineScalar factor=AffineScalar(1)){
+      for(const auto&[variable,coefficient]:b){auto value=a[variable]+factor*coefficient;
+        if(value==AffineScalar(0))a.erase(variable);else a[variable]=value;}return a;};
+    auto scaled=[](Expr a,AffineScalar factor){for(auto&[_,coefficient]:a)coefficient=coefficient*factor;return a;};
+    auto direction_key=[&](Expr value)->std::optional<Expr>{
+      if(value.empty())return std::nullopt;
+      AffineScalar pivot=value.begin()->second;
+      if(pivot.a==0||pivot.b==0)return std::nullopt;
+      return scaled(std::move(value),pivot.inverse());
+    };
+    auto difference=[&](const Expr&a,const Expr&b){return add(a,b,AffineScalar(-1));};
+
+    std::vector<Expr> point(points_.size());
+    for(std::size_t i=0;i<point.size();++i)point[i][static_cast<int>(i)]=AffineScalar(1);
+    std::vector<std::optional<FormalLine>> formal_line(lines_.size());
+    auto solve_intersection=[&](const FormalLine&a,const FormalLine&b)->std::optional<Expr>{
+      Expr rhs=difference(b.point,a.point);std::set<int> variables;
+      for(const auto&[v,_]:a.direction)variables.insert(v);
+      for(const auto&[v,_]:b.direction)variables.insert(v);
+      for(const auto&[v,_]:rhs)variables.insert(v);
+      auto coefficient=[](const Expr&e,int v){auto it=e.find(v);return it==e.end()?AffineScalar(0):it->second;};
+      std::vector<int> ids(variables.begin(),variables.end());
+      for(std::size_t i=0;i<ids.size();++i)for(std::size_t j=i+1;j<ids.size();++j){
+        AffineScalar a1=coefficient(a.direction,ids[i]),b1=AffineScalar(0)-coefficient(b.direction,ids[i]);
+        AffineScalar a2=coefficient(a.direction,ids[j]),b2=AffineScalar(0)-coefficient(b.direction,ids[j]);
+        AffineScalar det=a1*b2-a2*b1;if(det.a==0||det.b==0)continue;
+        AffineScalar r1=coefficient(rhs,ids[i]),r2=coefficient(rhs,ids[j]);
+        AffineScalar t=(r1*b2-r2*b1)/det,s=(a1*r2-a2*r1)/det;bool valid=true;
+        for(int v:ids)if(coefficient(a.direction,v)*t-coefficient(b.direction,v)*s!=coefficient(rhs,v)){valid=false;break;}
+        if(valid)return add(a.point,scaled(a.direction,t));
+      }
+      return std::nullopt;
+    };
+
+    // Learned midpoint identities may concern points whose original command was
+    // metric. Apply them before and after replaying parallel intersections.
+    for(int round=0;round<4;++round){
+      for(const auto&mf:midpoint_facts_){Expr value=scaled(add(point[static_cast<std::size_t>(mf.a)],point[static_cast<std::size_t>(mf.b)]),AffineScalar(1)/AffineScalar(2));point[static_cast<std::size_t>(mf.midpoint)]=std::move(value);}
+      formal_line.assign(lines_.size(),std::nullopt);
+      for(const auto&t:construction_commands_){const auto&op=t[0];
+        if(op=="line"){int a=pid(t[2]),b=pid(t[3]),l=lid(t[1]);formal_line[static_cast<std::size_t>(l)]=FormalLine{point[static_cast<std::size_t>(a)],difference(point[static_cast<std::size_t>(b)],point[static_cast<std::size_t>(a)])};}
+        else if(op=="parallel"){int p=pid(t[2]),l=lid(t[1]),base=lid(t[3]);if(formal_line[static_cast<std::size_t>(base)])formal_line[static_cast<std::size_t>(l)]=FormalLine{point[static_cast<std::size_t>(p)],formal_line[static_cast<std::size_t>(base)]->direction};}
+        else if(op=="intersection_ll"){int x=pid(t[1]),a=lid(t[2]),b=lid(t[3]);if(formal_line[static_cast<std::size_t>(a)]&&formal_line[static_cast<std::size_t>(b)])if(auto value=solve_intersection(*formal_line[static_cast<std::size_t>(a)],*formal_line[static_cast<std::size_t>(b)]))point[static_cast<std::size_t>(x)]=std::move(*value);}
+      }
+    }
+
+    // Reconstruct every existing carrier from any two formal points on it and
+    // merge carriers with proportional formal direction vectors.
+    std::map<Expr,std::vector<int>> directions;
+    for(std::size_t l=0;l<line_points_.size();++l){const auto&on=line_points_[l];if(on.size()<2)continue;
+      if(auto key=direction_key(difference(point[static_cast<std::size_t>(on[1])],point[static_cast<std::size_t>(on[0])])) )directions[*key].push_back(static_cast<int>(l));}
+    for(const auto&[_,same]:directions)if(same.size()>=2)
+      for(std::size_t i=1;i<same.size();++i)parallel_fact(same[0],same[i],"formal affine parallelism certificate");
+  }
+
+  bool register_orthocenter_closure(){
+    // In any triangle, two concurrent altitudes determine the orthocenter, so
+    // the third vertex-to-center line is perpendicular to the opposite side.
+    // Restrict candidate quadruples to proof goals and numerically detected
+    // circles; this avoids an O(n^4) scan while still feeding discovered facts
+    // back into the ordinary fixed-point angle chase.
+    std::set<std::array<int,4>> candidates;
+    for(const auto&g:goals_)if(g.args.size()==4){std::array<int,4> q;
+      for(int i=0;i<4;++i)q[static_cast<std::size_t>(i)]=pid(g.args[static_cast<std::size_t>(i)]);
+      std::sort(q.begin(),q.end());if(std::adjacent_find(q.begin(),q.end())==q.end())candidates.insert(q);}
+    for(const auto&candidate:circle_cache_)if(candidate.points.size()>=4)
+      for(std::size_t i=3;i<candidate.points.size();++i){std::array<int,4> q{candidate.points[0],candidate.points[1],candidate.points[2],candidate.points[i]};std::sort(q.begin(),q.end());candidates.insert(q);}
+
+    bool changed=false;
+    for(const auto&q:candidates)for(int hi=0;hi<4;++hi){int h=q[static_cast<std::size_t>(hi)];std::array<int,3> v;int at=0;
+      for(int i=0;i<4;++i)if(i!=hi)v[static_cast<std::size_t>(at++)]=q[static_cast<std::size_t>(i)];
+      std::array<std::pair<int,int>,3> altitudes{{
+        {segment(h,v[0]),segment(v[1],v[2])},
+        {segment(h,v[1]),segment(v[0],v[2])},
+        {segment(h,v[2]),segment(v[0],v[1])}}};
+      int known=0;for(auto [a,b]:altitudes)known+=direction_known(a,b,1)?1:0;
+      if(known<2)continue;
+      for(auto [a,b]:altitudes)if(!direction_known(a,b,1))
+        changed|=perpendicular_fact(a,b,"third-altitude orthocenter closure");
+    }
+    return changed;
+  }
+
   void register_perpendicular_bisector_midpoints(){
     // The unique intersection of a segment carrier and its perpendicular
     // bisector is the segment midpoint. This includes the familiar fact that
@@ -939,6 +1045,55 @@ class Engine {
       }
     }
   }
+
+  bool register_projection_midpoints(){
+    // Orthogonal projection onto a fixed line is an affine map. Hence it sends
+    // the midpoint of AB to the midpoint of the projections of A and B. A
+    // point already on the target line is its own projection.
+    bool changed=false;std::set<int> target_lines;
+    for(const auto&f:foot_facts_)target_lines.insert(f.line);
+    auto projection=[&](int source,int target){
+      const auto&on=line_points_[static_cast<std::size_t>(target)];
+      if(std::find(on.begin(),on.end(),source)!=on.end())return source;
+      for(const auto&f:foot_facts_){if(f.source!=source)continue;
+        const auto&foot_on=line_points_[static_cast<std::size_t>(target)];
+        if(direction_known(f.line,target,0)&&
+           std::find(foot_on.begin(),foot_on.end(),f.foot)!=foot_on.end())return f.foot;
+      }
+      return -1;
+    };
+    std::size_t midpoint_count=midpoint_facts_.size();
+    for(std::size_t index=0;index<midpoint_count;++index){auto mf=midpoint_facts_[index];for(int line:target_lines){
+      int a=projection(mf.a,line),m=projection(mf.midpoint,line),b=projection(mf.b,line);
+      if(a<0||m<0||b<0||a==b||m==a||m==b)continue;
+      std::size_t before=midpoint_facts_.size();
+      register_midpoint_fact(m,a,b,"orthogonal projection of midpoint");
+      changed|=midpoint_facts_.size()!=before;
+    }}
+    return changed;
+  }
+
+  bool register_circle_chord_reflections(){
+    // The perpendicular through a circle's named center bisects every chord
+    // and is its reflection axis. Register the reflected endpoint pair so all
+    // ordinary reflection, kite, and isosceles-trapezoid rules can reuse it.
+    bool changed=false;
+    for(std::size_t c=0;c<circle_points_.size();++c){int center=circle_center_ids_[c];
+      if(center<0)continue;
+      const auto on=circle_points_[c];
+      for(std::size_t i=0;i<on.size();++i)for(std::size_t j=i+1;j<on.size();++j){
+        int chord=segment(on[i],on[j]);
+        for(std::size_t l=0;l<lines_.size();++l){const auto&axis=line_points_[l];
+          if(std::find(axis.begin(),axis.end(),center)==axis.end()||
+             !direction_known(static_cast<int>(l),chord,1))continue;
+          changed|=register_line_reflection(on[j],on[i],static_cast<int>(l),
+                                            "circle center perpendicular-to-chord reflection");
+        }
+      }
+    }
+    return changed;
+  }
+
 
   bool register_orthogonal_trapezoids(){
     // Materialize the candidate chords before building direction-component
@@ -1012,7 +1167,8 @@ class Engine {
     // discoveries remain conjectures and therefore cannot prove themselves.
     auto fact_count=[&]{
       std::size_t total=angles_.fact_count()+equal_lengths_.size()+cyclic_facts_.size()+
-                        midpoint_facts_.size()+perpendicular_bisectors_.size();
+                        midpoint_facts_.size()+perpendicular_bisectors_.size()+
+                        line_reflection_facts_.size();
       for(const auto&on:line_points_)total+=on.size();
       return total;
     };
@@ -1025,7 +1181,9 @@ class Engine {
     register_incenter_loci();
     normalize_definition_incidences();
     register_perpendicular_bisector_midpoints();
+    register_projection_midpoints();
     register_affine_facts();
+    register_formal_affine_facts();
     normalize_definition_incidences();
     register_derived_perpendicular_bisectors();
     // A mirror may acquire additional certified points after its reflection was
@@ -1054,6 +1212,21 @@ class Engine {
           angles_.add(equation({{segment(f.source,pb.b),1},{segment(f.image,pb.a),1},{f.line,-2}}),0,1,
                       "reflection transports line across perpendicular bisector");
       }
+    // A half-turn about a point on a mirror, composed with reflection in that
+    // mirror, sends the source to two images whose connector is parallel to the
+    // mirror. This is the elementary composition of two plane isometries.
+    for(const auto&reflection:line_reflection_facts_)for(const auto&mf:midpoint_facts_){
+      if(mf.midpoint!=reflection.source&&mf.a!=reflection.source&&mf.b!=reflection.source)continue;
+      int half_turn_image=-1;
+      if(mf.a==reflection.source)half_turn_image=mf.b;
+      else if(mf.b==reflection.source)half_turn_image=mf.a;
+      else continue;
+      const auto&axis=line_points_[static_cast<std::size_t>(reflection.line)];
+      if(std::find(axis.begin(),axis.end(),mf.midpoint)==axis.end()||
+         half_turn_image==reflection.image)continue;
+      parallel_fact(segment(reflection.image,half_turn_image),reflection.line,
+                    "line-reflection and half-turn composition");
+    }
     // If two segments have the same midpoint, their endpoints form a
     // parallelogram in the crossed order. Both opposite-side parallels are
     // direct affine consequences and use no angle division.
@@ -1085,6 +1258,7 @@ class Engine {
       if(on.size()>=4) for(std::size_t i=3;i<on.size();++i)
         add_cyclic(on[0],on[1],on[2],on[i],"points constructed on circle "+circles_[c].name);
     }
+    register_circle_chord_reflections();
     if(!candidates_detected){circle_cache_=detect_circles(true);candidates_detected=true;}
     std::vector<std::pair<std::size_t,int>> pending_midpoint_carriers;
     for(std::size_t i=0;i<midpoint_facts_.size();++i){const auto&f=midpoint_facts_[i];
@@ -1238,6 +1412,8 @@ class Engine {
         auto symmetry=equation({{segment(*ai,base.first),1},{segment(*ai,base.second),1},{segment(*di,base.first),-1},{segment(*di,base.second),-1}});
         if(!angles_.proves(symmetry,0,1))changed|=angles_.add(symmetry,0,1,why+" [reflection angles]");
       }
+
+      changed|=register_orthocenter_closure();
 
     }
     // Component models are comparatively expensive and depend on the completed
@@ -1558,6 +1734,18 @@ class Engine {
       if(ok) print_proof(label,w); else std::cout<<"UNPROVED "<<label<<"\n";
     }catch(const std::exception&e){std::cout<<"ERROR goal: "<<e.what()<<"\n";}}}
 
+  void materialize_goal_segments(){
+    // Later closure phases (notably affine direction recovery and component
+    // reasoning) can only attach facts to segment carriers that already exist.
+    // Proof goals are parsed before closure, so expose all of their point pairs
+    // up front instead of first creating them while printing the final verdict.
+    for(const auto&g:goals_){std::vector<int> p;
+      for(const auto&name:g.args)p.push_back(pid(name));
+      for(std::size_t i=0;i<p.size();++i)for(std::size_t j=i+1;j<p.size();++j)
+        if(p[i]!=p[j])segment(p[i],p[j]);
+    }
+  }
+
  public:
   explicit Engine(std::uint64_t seed,std::uint64_t generation_seed):
     seed_(seed),generation_seed_(generation_seed),rng_(seed),generation_rng_(generation_seed){}
@@ -1565,6 +1753,7 @@ class Engine {
   void report(bool classify=true){
     input_point_names_.clear();for(const auto&p:points_)input_point_names_.insert(p.name);
     expand_points();
+    if(prove_mode_||!goals_.empty())materialize_goal_segments();
     if(classify||prove_mode_||!goals_.empty())geometry_closure();
     std::cout<<"GEOGEN REPORT\npoints="<<points_.size()<<" lines="<<lines_.size()<<" circles="<<circles_.size()<<"\n";
     for(const auto&definition:point_definitions())std::cout<<definition<<'\n';

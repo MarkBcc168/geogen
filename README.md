@@ -275,6 +275,14 @@ successful angular proof lists the construction/theorem facts used. See
   to every earlier phase on the next pass. Closure stops only when a complete
   pass adds no stored incidence, angle, cyclic, midpoint, or equal-length fact;
   there is no fixed round limit.
+- Orthogonal projection preserves certified midpoints: if `M` is the midpoint
+  of `AB`, their projections onto one line are `A1`, `M1`, and `B1`, then `M1`
+  is registered as the midpoint of `A1B1`. A second formal-affine replay treats
+  otherwise metric points as independent vectors, allowing midpoint and
+  parallel-intersection identities to cancel those unknowns soundly.
+- Orthocenters are recognized from their defining property, not only from an
+  `orthocenter` command. On a relevant four-point set, any two certified
+  altitudes register the third altitude and feed it back into angle closure.
 - Midpoint closure includes the triangle midline theorem and the right-triangle
   hypotenuse-midpoint theorem. Perpendicular-bisector incidences add equal
   distances, kites add their full reflection-angle relation, and the standard six
@@ -304,6 +312,13 @@ successful angular proof lists the construction/theorem facts used. See
   Reflection symmetry is also propagated to points attached to the mirror only
   during later theorem closure, such as a circumcenter on a perpendicular
   bisector.
+- If a source point is reflected in a line and half-turned about a point on that
+  line, the two images determine a line parallel to the mirror. This general
+  composition rule is reused by cyclic and right-angle deductions.
+- For a circle with a named center, every known line through the center and
+  perpendicular to a certified chord is registered as the reflection axis of
+  the chord endpoints. Subsequent reflection, kite, and isosceles-trapezoid
+  rules then apply without constructing the chord midpoint.
 - Definition-certified line carriers sharing two points, or sharing one point
   with a known parallel direction, are merged. Circles sharing three certified
   points are merged likewise. Thus every line-line, known-root line-circle, and

@@ -214,4 +214,24 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthogonal_isosceles_trapezoids.geogen)
   set_tests_properties(fixed_point_cross_prover_propagation PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED equal_distance.O,A,O,R2")
+  add_test(NAME circle_chord_reflection_rule
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/chord_reflection.geogen)
+  set_tests_properties(circle_chord_reflection_rule PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.E,P,H,H1")
+  add_test(NAME reflection_halfturn_composition_rule
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/reflection_halfturn.geogen)
+  set_tests_properties(reflection_halfturn_composition_rule PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED concyclic.X,Y,C,D")
+  add_test(NAME derived_orthocenter_third_altitude
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/derived_orthocenter.geogen)
+  set_tests_properties(derived_orthocenter_third_altitude PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED perpendicular.H,X,A,Y")
+  add_test(NAME formal_affine_unknown_point_parallelism
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/derived_orthocenter.geogen)
+  set_tests_properties(formal_affine_unknown_point_parallelism PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED parallel.A,Y,X,P")
+  add_test(NAME derived_orthocenter_propagates_to_parallel_side
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/derived_orthocenter.geogen)
+  set_tests_properties(derived_orthocenter_propagates_to_parallel_side PROPERTIES
+    PASS_REGULAR_EXPRESSION "PROVED perpendicular.H,X,X,P")
 endif()
