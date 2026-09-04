@@ -5,10 +5,7 @@ Olympiad-geometry prover. It builds a configuration from a small whitespace DSL,
 finds collinear and concyclic point sets, runs a fixed-point angle chase, and
 prints only coincidences which that chase does not already make routine.
 
-This is an experimental problem-discovery tool, not a replacement for a formal
-proof assistant. Initial figures are symbolic: the program samples several
-generic realizations to *discover* candidate statements, while symbolic facts are
-used to prove and filter them.
+The code was written by ChatGPT 5.6 Pro.
 
 ## Build and run
 
