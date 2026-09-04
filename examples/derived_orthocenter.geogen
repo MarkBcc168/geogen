@@ -1,0 +1,18 @@
+mode prove
+triangle A B C
+line BC B C
+line AC A C
+line AB A B
+midpoint M B C
+line AM A M
+foot D A BC
+foot E B AC
+foot X M AC
+midpoint Y B E
+parallel l1 M AB
+parallel l2 C AM
+intersection_ll P l1 l2
+orthocenter H A B C
+prove_perpendicular H X A Y
+prove_parallel A Y X P
+prove_perpendicular H X X P

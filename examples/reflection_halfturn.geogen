@@ -1,0 +1,10 @@
+mode prove
+triangle A B C
+line BC B C
+line AC A C
+line AB A B
+foot D A BC
+foot E B AC
+reflection_line X E AB
+reflection_point Y E A
+prove_concyclic X Y C D
