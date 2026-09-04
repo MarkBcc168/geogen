@@ -15,7 +15,7 @@ if(BUILD_TESTING)
   add_test(NAME sample_generate
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/midpoint_perpendicular.geogen)
   set_tests_properties(sample_generate PROPERTIES
-    PASS_REGULAR_EXPRESSION "points=50")
+    PASS_REGULAR_EXPRESSION "generated_points=50")
   add_test(NAME sample_prove
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/orthocenter.geogen)
   set_tests_properties(sample_prove PROPERTIES
@@ -35,7 +35,7 @@ if(BUILD_TESTING)
   add_test(NAME adjustable_automatic_points
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_points.geogen)
   set_tests_properties(adjustable_automatic_points PROPERTIES
-    PASS_REGULAR_EXPRESSION "points=10")
+    PASS_REGULAR_EXPRESSION "generated_points=10")
   add_test(NAME discard_coincident_points
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/coincident_points.geogen)
   set_tests_properties(discard_coincident_points PROPERTIES
@@ -60,7 +60,7 @@ if(BUILD_TESTING)
   add_test(NAME automatic_known_root_line_circle
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/automatic_line_circle.geogen)
   set_tests_properties(automatic_known_root_line_circle PROPERTIES
-    PASS_REGULAR_EXPRESSION "POINT X.secant,omega,A")
+    PASS_REGULAR_EXPRESSION "generated_points=5")
   add_test(NAME circumcenter_isosceles_filter
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
   set_tests_properties(circumcenter_isosceles_filter PROPERTIES
@@ -81,7 +81,7 @@ if(BUILD_TESTING)
   add_test(NAME random_generation_reaches_cap
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
   set_tests_properties(random_generation_reaches_cap PROPERTIES
-    PASS_REGULAR_EXPRESSION "points=100")
+    PASS_REGULAR_EXPRESSION "generated_points=100")
   add_test(NAME random_generation_line_line
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/random_generation.geogen)
   set_tests_properties(random_generation_line_line PROPERTIES
@@ -234,4 +234,32 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/derived_orthocenter.geogen)
   set_tests_properties(derived_orthocenter_propagates_to_parallel_side PROPERTIES
     PASS_REGULAR_EXPRESSION "PROVED perpendicular.H,X,X,P")
+  add_test(NAME converse_cyclic_names_quadrilateral
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/circumcenter_isosceles.geogen)
+  set_tests_properties(converse_cyclic_names_quadrilateral PROPERTIES
+    PASS_REGULAR_EXPRESSION "converse cyclic angle theorem B,M,F,O1")
+  add_test(NAME report_marks_unused_initial_points
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/unused_initial.geogen)
+  set_tests_properties(report_marks_unused_initial_points PROPERTIES
+    PASS_REGULAR_EXPRESSION "unused_initial=C")
+  add_test(NAME report_marks_isosceles_trapezoid
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/report_annotations.geogen)
+  set_tests_properties(report_marks_isosceles_trapezoid PROPERTIES
+    PASS_REGULAR_EXPRESSION "isosceles_trapezoid=")
+  add_test(NAME report_marks_two_right_angles
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/report_annotations.geogen)
+  set_tests_properties(report_marks_two_right_angles PROPERTIES
+    PASS_REGULAR_EXPRESSION "two_right_angles=")
+  add_test(NAME report_omits_auxiliary_point_definitions
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/report_annotations.geogen)
+  set_tests_properties(report_omits_auxiliary_point_definitions PROPERTIES
+    FAIL_REGULAR_EXPRESSION "POINT I =")
+  add_test(NAME symmetric_generation_pairs_points
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_generation.geogen)
+  set_tests_properties(symmetric_generation_pairs_points PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT S\\$Foot\\$4 = foot.C,perpendicular_bisector.C,A")
+  add_test(NAME symmetric_generation_marks_pairs
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/symmetric_generation.geogen)
+  set_tests_properties(symmetric_generation_marks_pairs PROPERTIES
+    PASS_REGULAR_EXPRESSION "symmetry_with=collinear.A,C,S\\$Foot\\$4")
 endif()

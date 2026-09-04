@@ -1,0 +1,6 @@
+mode generate
+option trials 1
+option show_easy 1
+
+triangle A B C
+midpoint M A B
