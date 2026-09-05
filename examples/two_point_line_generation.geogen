@@ -1,0 +1,11 @@
+# Ordinary two-point lines remain eligible for automatic intersections even
+# after they canonicalize to internal segment carriers.
+mode generate
+option trials 1
+option seed 42
+option max_points 5
+option show_all_points 1
+option construction all 0
+option construction line 1
+option construction intersection_ll 1
+quadrilateral A B C D

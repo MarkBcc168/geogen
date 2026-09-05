@@ -1596,10 +1596,22 @@ class Engine {
     return {};
   }
   std::vector<int> named_lines()const{
+    // A public line(P,Q) normally canonicalizes to the already existing
+    // internal segment carrier @PQ.  Eligibility belongs to the public alias,
+    // not to the canonical carrier's original "segment" label.
+    std::vector<bool> exposed(lines_.size(),false);
+    for(const auto&[name,id]:line_id_)if(!name.empty()&&name[0]!='@')
+      exposed[static_cast<std::size_t>(id)]=true;
     std::vector<int> out;for(std::size_t i=0;i<lines_.size();++i)
-      if(lines_[i].origin!="segment"&&!lines_[i].name.empty()&&lines_[i].name[0]!='@'&&
-         (!symmetry_enabled_||symmetry_primary_lines_.count(static_cast<int>(i))))out.push_back(static_cast<int>(i));
+      if(exposed[i]&&(!symmetry_enabled_||symmetry_primary_lines_.count(static_cast<int>(i))))
+        out.push_back(static_cast<int>(i));
     return out;
+  }
+  std::string public_line_name(int id)const{
+    std::string best;
+    for(const auto&[name,candidate]:line_id_)if(candidate==id&&!name.empty()&&name[0]!='@'&&
+        (best.empty()||name<best))best=name;
+    return best.empty()?lines_[static_cast<std::size_t>(id)].name:best;
   }
   std::vector<int> named_circles()const{
     std::vector<int> out;for(std::size_t i=0;i<circles_.size();++i)
@@ -1620,7 +1632,7 @@ class Engine {
       else if(kind==2||kind==3){
         auto pool=named_lines();if(pool.empty()){if(!construction_enabled("line"))continue;kind=0;name=automatic_name("L");execute({"line",name,points_[pair[0]].name,points_[pair[1]].name},0);}
         else {int base=depth_weighted_pick(pool,line_depth_);int p=random_point();depth=1+std::max(point_depth_[p],line_depth_[base]);
-          name=automatic_name(kind==2?"Par":"Perp");execute({kind==2?"parallel":"perpendicular",name,points_[p].name,lines_[base].name},0);}
+          name=automatic_name(kind==2?"Par":"Perp");execute({kind==2?"parallel":"perpendicular",name,points_[p].name,public_line_name(base)},0);}
       } else {
         auto triple=random_distinct_points(3,true);if(triple.empty())continue;
         depth=1+std::max({point_depth_[triple[0]],point_depth_[triple[1]],point_depth_[triple[2]]});
@@ -1685,7 +1697,7 @@ class Engine {
     if(kind==5||kind==6){
       auto pool=named_lines();if(pool.empty())create_random_line();pool=named_lines();if(pool.empty())return false;
       int p=random_point(),line=depth_weighted_pick(pool,line_depth_);int depth=1+std::max(point_depth_[p],line_depth_[line]);
-      name=automatic_name(kind==5?"Rl":"Foot");execute({kind==5?"reflection_line":"foot",name,points_[p].name,lines_[line].name},0);return finish(depth);
+      name=automatic_name(kind==5?"Rl":"Foot");execute({kind==5?"reflection_line":"foot",name,points_[p].name,public_line_name(line)},0);return finish(depth);
     }
     if(kind==7){
       if(named_lines().size()<2){create_random_line();create_random_line();}
@@ -1693,7 +1705,7 @@ class Engine {
         int a=depth_weighted_pick(pool,line_depth_),b=depth_weighted_pick(pool,line_depth_);if(a==b)continue;
         if(std::fabs(lines_[a].a*lines_[b].b-lines_[b].a*lines_[a].b)<=EPS)continue;
         int depth=1+std::max(line_depth_[a],line_depth_[b]);name=automatic_name("Xll");
-        execute({"intersection_ll",name,lines_[a].name,lines_[b].name},0);return finish(depth);
+        execute({"intersection_ll",name,public_line_name(a),public_line_name(b)},0);return finish(depth);
       }return false;
     }
     if(kind==8){
@@ -1714,7 +1726,7 @@ class Engine {
         const auto&ln=lines_[line];const auto&cc=circles_[circle];long double dx=ln.b,dy=-ln.a;
         if(std::fabs(-2*dot(points_[k].x-cc.center.x,points_[k].y-cc.center.y,dx,dy))<=EPS)continue;
         int depth=1+std::max(line_depth_[line],circle_depth_[circle]);name=automatic_name("Xlc");
-        execute({"intersection_lc_known",name,lines_[line].name,circles_[circle].name,points_[k].name},0);return finish(depth);
+        execute({"intersection_lc_known",name,public_line_name(line),circles_[circle].name,points_[k].name},0);return finish(depth);
       }return false;
     }
     for(int attempt=0;attempt<32;++attempt){
