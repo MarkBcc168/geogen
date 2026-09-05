@@ -308,4 +308,8 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/combined_trials.geogen)
   set_tests_properties(independent_trials_second_namespace PROPERTIES
     PASS_REGULAR_EXPRESSION "POINT T2\\$")
+  add_test(NAME two_point_lines_generate_intersections
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/two_point_line_generation.geogen)
+  set_tests_properties(two_point_lines_generate_intersections PROPERTIES
+    PASS_REGULAR_EXPRESSION "POINT Xll\\$.* = intersect.line.C,B.,line.D,A")
 endif()

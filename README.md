@@ -134,6 +134,11 @@ they create a circumcircle through the known intersection whenever possible.
 These auxiliary objects are interleaved with point generation and bounded
 indirectly by the point cap.
 
+An ordinary generated `line(P,Q)` remains eligible for subsequent line-line,
+known-root line-circle, foot, and reflection constructions even though it is
+internally canonicalized to the same carrier as segment `PQ`. Thus constructing
+two-point lines can generate new points through their later intersections.
+
 Input choices use weights proportional to `4^(-depth)`, normalized to the
 shallowest currently available object. Each additional construction level is
 therefore four times less likely to be selected. Initial and shallow points,
