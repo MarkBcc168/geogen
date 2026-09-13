@@ -222,6 +222,8 @@ not counted, printed, or used as a seed for automatic expansion. Its requested
 name is retained only as an internal alias of the canonical point, so subsequent
 explicit DSL commands remain valid. For example, constructing the orthocenter of
 `A,B,H(A,B,C)` aliases that result to `C` instead of creating a recursive duplicate.
+Degenerate metric facts created when two such aliases coincide are discarded as
+well: zero-length segments never enter the directed-angle system.
 
 Lines are canonicalized in the same way. A construction that reproduces an
 existing geometric line remains usable by its requested name, but it does not

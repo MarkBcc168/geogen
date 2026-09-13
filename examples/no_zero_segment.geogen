@@ -1,0 +1,13 @@
+# Regression: two numerically merged midpoint realizations must not create an
+# angle fact for the zero connector between their canonical midpoint aliases.
+mode generate
+option trials 1
+option show_easy 1
+point A 1000000 0
+point B 1000001 0
+point C 1000001.03 0
+midpoint M A B
+point D 1000000.5 1
+line p M D
+perp_bisector q A C
+line base A C

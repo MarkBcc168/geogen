@@ -773,6 +773,7 @@ class Engine {
   }
   static std::pair<int,int> lenkey(int a, int b) { if (a>b) std::swap(a,b); return std::make_pair(a,b); }
   bool equal_length(int a, int b, int c, int d, const std::string&) {
+    if(a==b||c==d)return false;
     auto x=lenkey(a,b), y=lenkey(c,d); if (y<x) std::swap(x,y);
     return equal_lengths_.insert({x,y}).second;
   }
@@ -814,6 +815,7 @@ class Engine {
     equal_length(vertex,x,vertex,y,"converse isosceles triangle theorem");return true;
   }
   void register_midpoint_fact(int midpoint,int a,int b,const std::string&why){
+    if(a==b||midpoint==a||midpoint==b)return;
     for(const auto&f:midpoint_facts_)if(f.midpoint==midpoint&&lenkey(f.a,f.b)==lenkey(a,b))return;
     // Two midpoints on sides from a shared vertex give the opposite-side
     // parallel. Keeping this here lets constructed midpoints and point
@@ -821,12 +823,15 @@ class Engine {
     for(const auto&f:midpoint_facts_){int shared=-1;
       if(a==f.a||a==f.b)shared=a;else if(b==f.a||b==f.b)shared=b;if(shared<0)continue;
       int p=a==shared?b:a,q=f.a==shared?f.b:f.a;
-      if(p!=q)parallel_fact(segment(midpoint,f.midpoint),segment(p,q),"triangle midline theorem "+why+","+points_[f.midpoint].name);
+      if(p!=q&&midpoint!=f.midpoint)
+        parallel_fact(segment(midpoint,f.midpoint),segment(p,q),
+                      "triangle midline theorem "+why+","+points_[f.midpoint].name);
     }
     midpoint_facts_.push_back({midpoint,a,b});
   }
   void add_cyclic(int a, int b, int c, int d, const std::string& why) {
     std::array<int,4> q{a,b,c,d}; auto sorted=q; std::sort(sorted.begin(),sorted.end());
+    if(std::adjacent_find(sorted.begin(),sorted.end())!=sorted.end())return;
     for (auto old:cyclic_facts_) { std::sort(old.begin(),old.end()); if(old==sorted) return; }
     cyclic_facts_.push_back(q);
     int ab=segment(a,b), cd=segment(c,d), ad=segment(a,d), bc=segment(b,c);
@@ -1155,6 +1160,14 @@ class Engine {
     // the perpendicular foot from a circumcenter to a chord bisects the chord.
     for(const auto&pb:perpendicular_bisectors_)for(int x:line_points_[static_cast<std::size_t>(pb.line)]){
       if(x==pb.a||x==pb.b)continue;
+      // Incidence closure can offer many candidates in a large graph.  The
+      // numerical test only prunes impossible theorem applications; the two
+      // symbolic incidences below remain the proof of the midpoint fact.
+      Point expected{"",(points_[pb.a].x+points_[pb.b].x)/2,
+                        (points_[pb.a].y+points_[pb.b].y)/2,""};
+      if(std::sqrt(dist2(points_[x],expected))>
+          10*EPS*(1+std::hypotl(points_[x].x,points_[x].y)+
+                  std::hypotl(expected.x,expected.y)))continue;
       bool on_base=false;
       for(const auto&carrier:line_points_)if(std::find(carrier.begin(),carrier.end(),pb.a)!=carrier.end()&&
           std::find(carrier.begin(),carrier.end(),pb.b)!=carrier.end()&&std::find(carrier.begin(),carrier.end(),x)!=carrier.end()){on_base=true;break;}
