@@ -312,4 +312,9 @@ if(BUILD_TESTING)
     COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/two_point_line_generation.geogen)
   set_tests_properties(two_point_lines_generate_intersections PROPERTIES
     PASS_REGULAR_EXPRESSION "POINT Xll\\$.* = intersect.line.C,B.,line.D,A")
+  add_test(NAME coincident_midpoints_do_not_create_zero_segments
+    COMMAND geogen ${CMAKE_CURRENT_SOURCE_DIR}/examples/no_zero_segment.geogen)
+  set_tests_properties(coincident_midpoints_do_not_create_zero_segments PROPERTIES
+    PASS_REGULAR_EXPRESSION "EASY collinear.A,B,C,M"
+    FAIL_REGULAR_EXPRESSION "zero segment")
 endif()
